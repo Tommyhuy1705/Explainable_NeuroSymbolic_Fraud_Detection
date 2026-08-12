@@ -1,0 +1,111 @@
+project:
+  name: explainable_neurosymbolic_fraud_detection
+  seed: 42
+  output_dir: results/runs/baf
+
+dataset:
+  name: baf
+  data_file: Base.csv
+  id_column: null
+  target_column: fraud_bool
+  time_column: month
+  max_rows: null
+
+split:
+  strategy: temporal
+  train_size: 0.70
+  validation_size: 0.15
+  test_size: 0.15
+  random_state: 42
+
+preprocessing:
+  max_missing_fraction: 0.95
+  max_features: 100
+  categorical_max_cardinality: 500
+  scale_numeric: true
+  drop_columns: []
+
+models:
+  mlp:
+    hidden_dims: [128, 64]
+    dropout: 0.20
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    batch_size: 2048
+    epochs: 20
+    patience: 4
+  tabular_resnet:
+    hidden_dim: 128
+    num_blocks: 3
+    dropout: 0.15
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    batch_size: 2048
+    epochs: 25
+    patience: 5
+  tree:
+    backend: lightgbm
+    n_estimators: 400
+    max_depth: -1
+    learning_rate: 0.05
+    subsample: 0.85
+    colsample_bytree: 0.85
+
+evaluation:
+  calibration: none
+  threshold_objective: f2
+  beta: 2.0
+  n_calibration_bins: 15
+  bootstrap_iterations: 200
+
+logic:
+  activation_threshold: 0.60
+  top_k_rules: 3
+  rules:
+    - name: high_velocity
+      description: Recent application velocity is unusually high.
+      conditions:
+        - feature: velocity_6h
+          operator: greater_quantile
+          value: 0.95
+          softness: 0.20
+    - name: device_email_linkage
+      description: The device is linked to an unusually high number of email addresses.
+      conditions:
+        - feature: device_distinct_emails_8w
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.20
+    - name: foreign_high_limit_request
+      description: A foreign request is associated with a high proposed credit limit.
+      conditions:
+        - feature: foreign_request
+          operator: equals
+          value: 1
+          softness: 0.05
+        - feature: proposed_credit_limit
+          operator: greater_quantile
+          value: 0.85
+          softness: 0.20
+    - name: short_session_high_risk
+      description: A short application session has an elevated credit-risk score.
+      conditions:
+        - feature: session_length_in_minutes
+          operator: less_quantile
+          value: 0.10
+          softness: 0.20
+        - feature: credit_risk_score
+          operator: greater_quantile
+          value: 0.85
+          softness: 0.20
+    - name: young_high_income_request
+      description: A young applicant reports unusually high income.
+      conditions:
+        - feature: customer_age
+          operator: less
+          value: 25
+          softness: 3.0
+        - feature: income
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.20

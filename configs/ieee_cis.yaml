@@ -1,0 +1,109 @@
+project:
+  name: explainable_neurosymbolic_fraud_detection
+  seed: 42
+  output_dir: results/runs/ieee_cis
+
+dataset:
+  name: ieee_cis
+  transaction_file: train_transaction.csv
+  identity_file: train_identity.csv
+  id_column: TransactionID
+  target_column: isFraud
+  time_column: TransactionDT
+  # null uses all available rows. Notebooks override this in QUICK_RUN mode.
+  max_rows: null
+
+split:
+  strategy: temporal
+  train_size: 0.70
+  validation_size: 0.15
+  test_size: 0.15
+  random_state: 42
+
+preprocessing:
+  max_missing_fraction: 0.95
+  max_features: 120
+  categorical_max_cardinality: 500
+  scale_numeric: true
+  drop_columns: []
+
+models:
+  mlp:
+    hidden_dims: [256, 128]
+    dropout: 0.20
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    batch_size: 2048
+    epochs: 20
+    patience: 4
+  tabular_resnet:
+    hidden_dim: 192
+    num_blocks: 3
+    dropout: 0.15
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    batch_size: 2048
+    epochs: 25
+    patience: 5
+  tree:
+    backend: xgboost
+    n_estimators: 500
+    max_depth: 8
+    learning_rate: 0.05
+    subsample: 0.85
+    colsample_bytree: 0.80
+
+evaluation:
+  calibration: none
+  threshold_objective: f2
+  beta: 2.0
+  n_calibration_bins: 15
+  bootstrap_iterations: 200
+
+logic:
+  activation_threshold: 0.60
+  top_k_rules: 3
+  rules:
+    - name: high_transaction_amount
+      description: Transaction amount is unusually high.
+      conditions:
+        - feature: TransactionAmt
+          operator: greater_quantile
+          value: 0.95
+          softness: 0.20
+    - name: unusual_transaction_hour
+      description: Transaction occurs during an unusual time window.
+      conditions:
+        - feature: transaction_hour
+          operator: outside_range
+          value: [6.0, 23.0]
+          softness: 1.5
+    - name: high_amount_and_device_risk
+      description: A high-value transaction is associated with risky device metadata.
+      conditions:
+        - feature: TransactionAmt
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.25
+        - feature: DeviceType
+          operator: category_risk
+          value: 0.70
+          softness: 0.10
+    - name: high_amount_and_email_risk
+      description: A high-value transaction uses an email domain with elevated fraud risk.
+      conditions:
+        - feature: TransactionAmt
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.25
+        - feature: P_emaildomain
+          operator: category_risk
+          value: 0.70
+          softness: 0.10
+    - name: high_velocity_proxy
+      description: Transaction-count features indicate unusually high activity.
+      conditions:
+        - feature: C1
+          operator: greater_quantile
+          value: 0.95
+          softness: 0.20
