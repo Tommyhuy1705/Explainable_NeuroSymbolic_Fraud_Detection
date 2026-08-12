@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Raw data and large artifacts
+data/raw/
+data/processed/
+artifacts/
+checkpoints/
+models/
+*.pt
+*.pth
+*.ckpt
+*.joblib
+
+# Generated experiment outputs (selected tables/figures may be force-added)
+results/runs/
+outputs/
+
+# Kaggle and credentials
+kaggle.json
+.env
+*.key
+*.pem
+
+# Logs
+*.log
+
