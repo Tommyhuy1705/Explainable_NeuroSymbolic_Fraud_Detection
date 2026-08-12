@@ -159,4 +159,3 @@ class FraudRuleEngine:
                     }
                 )
         return pd.DataFrame(rows)
-

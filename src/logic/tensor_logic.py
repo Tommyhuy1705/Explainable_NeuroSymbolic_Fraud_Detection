@@ -123,4 +123,3 @@ class TensorFraudKnowledgeBase(nn.Module):
     ) -> torch.Tensor:
         evidence = TensorFraudKnowledgeBase.suspiciousness(rule_truth)
         return TensorLogic.forall(TensorLogic.equivalence(evidence, labels.float()), p=p)
-

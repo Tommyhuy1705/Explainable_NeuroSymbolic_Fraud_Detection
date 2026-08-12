@@ -59,4 +59,3 @@ class RuleExplainer:
                 }
             )
         return pd.DataFrame(records).set_index("row_index")
-

@@ -29,4 +29,3 @@ class FraudKnowledgeBase:
         target = frame[target_column].to_numpy(dtype=float)
         agreement = target * score + (1.0 - target) * (1.0 - score)
         return float(np.mean(agreement))
-

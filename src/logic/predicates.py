@@ -52,4 +52,3 @@ def fuzzy_or(truth_values: list[np.ndarray], mode: str = "maximum") -> np.ndarra
     if mode == "maximum":
         return np.max(stacked, axis=0)
     raise ValueError(f"Unsupported fuzzy disjunction: {mode}")
-
