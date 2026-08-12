@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.experiment import run_predictive_benchmarks
+from src.experiment import run_predictive_benchmarks, run_repeated_predictive_benchmarks
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,12 +23,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--max-rows", type=int, default=None)
     parser.add_argument("--synthetic-fallback", action="store_true")
+    parser.add_argument("--repeated", action="store_true", help="Run all configured seeds")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    result = run_predictive_benchmarks(
+    runner = run_repeated_predictive_benchmarks if args.repeated else run_predictive_benchmarks
+    result = runner(
         PROJECT_ROOT / args.config,
         data_root=args.data_root,
         output_dir=args.output_dir,
@@ -37,7 +39,8 @@ def main() -> None:
         max_rows=args.max_rows,
         synthetic_fallback=args.synthetic_fallback,
     )
-    print(result["metrics"].to_string(index=False))
+    table = result.get("summary", result["metrics"])
+    print(table.to_string(index=False))
     print(f"Artifacts: {result['output_dir']}")
 
 

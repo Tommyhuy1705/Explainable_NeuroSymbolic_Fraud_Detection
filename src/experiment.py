@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 from pathlib import Path
 from typing import Any, Iterable
@@ -103,6 +104,7 @@ def run_predictive_benchmarks(
     quick_run: bool = False,
     max_rows: int | None = None,
     synthetic_fallback: bool = False,
+    seed: int | None = None,
 ) -> dict[str, Any]:
     """Run selected predictive models under one locked evaluation protocol."""
     config = load_config(config_path)
@@ -116,7 +118,7 @@ def run_predictive_benchmarks(
         synthetic_rows=max_rows or 6000,
     )
     prepared = prepare_dataset(frame, config)
-    seed = int(config["project"].get("seed", 42))
+    seed = int(config["project"].get("seed", 42) if seed is None else seed)
     rows: list[dict[str, Any]] = []
     models: dict[str, Any] = {}
     validation_probabilities: dict[str, np.ndarray] = {}
@@ -211,6 +213,7 @@ def run_predictive_benchmarks(
         "features": prepared.X_train.shape[1],
         "thresholds": thresholds,
         "models": list(model_names),
+        "seed": seed,
         "quick_run": quick_run,
     }
     (destination / "run_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -226,4 +229,115 @@ def run_predictive_benchmarks(
         "histories": histories,
         "output_dir": destination,
         "data_source": data_source,
+    }
+
+
+def run_repeated_predictive_benchmarks(
+    config_path: str | Path,
+    data_root: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    model_names: Iterable[str] = ("mlp", "tabular_resnet", "tree"),
+    quick_run: bool = False,
+    max_rows: int | None = None,
+    synthetic_fallback: bool = False,
+    seeds: Iterable[int] | None = None,
+) -> dict[str, Any]:
+    """Repeat the locked benchmark and report mean/std across independent seeds."""
+    config = load_config(config_path)
+    configured_seeds = list(seeds or config["evaluation"].get("seed_list", [42, 123, 2026]))
+    if not configured_seeds:
+        raise ValueError("At least one experiment seed is required")
+    effective_seeds = configured_seeds[:1] if quick_run else configured_seeds
+    destination = Path(output_dir or config["project"]["output_dir"])
+    destination.mkdir(parents=True, exist_ok=True)
+
+    metric_frames: list[pd.DataFrame] = []
+    data_summary: pd.DataFrame | None = None
+    histories: dict[int, dict[str, list[dict[str, float]]]] = {}
+    data_sources: set[str] = set()
+
+    for run_seed in effective_seeds:
+        run = run_predictive_benchmarks(
+            config_path,
+            data_root=data_root,
+            output_dir=destination / f"seed_{run_seed}",
+            model_names=model_names,
+            quick_run=quick_run,
+            max_rows=max_rows,
+            synthetic_fallback=synthetic_fallback,
+            seed=int(run_seed),
+        )
+        run_metrics = run["metrics"].copy()
+        run_metrics.insert(0, "seed", int(run_seed))
+        metric_frames.append(run_metrics)
+        data_sources.add(str(run["data_source"]))
+        histories[int(run_seed)] = run["histories"]
+        if data_summary is None:
+            prepared = run["prepared"]
+            data_summary = pd.DataFrame(
+                {
+                    "split": ["train", "validation", "test"],
+                    "rows": [len(prepared.y_train), len(prepared.y_validation), len(prepared.y_test)],
+                    "fraud_rate": [
+                        prepared.y_train.mean(),
+                        prepared.y_validation.mean(),
+                        prepared.y_test.mean(),
+                    ],
+                }
+            )
+        del run
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+
+    metrics = pd.concat(metric_frames, ignore_index=True)
+    metric_columns = [
+        "pr_auc",
+        "roc_auc",
+        "precision",
+        "recall",
+        "f1",
+        "fbeta",
+        "brier",
+        "ece",
+        "nll",
+        "threshold",
+        "positive_rate",
+    ]
+    summary = metrics.groupby(["model", "model_key", "split"], as_index=False)[metric_columns].agg(
+        ["mean", "std"]
+    )
+    summary.columns = [
+        "_".join(part for part in column if part).rstrip("_")
+        if isinstance(column, tuple)
+        else column
+        for column in summary.columns
+    ]
+    summary = summary.reset_index(drop=True)
+    summary["n_seeds"] = len(effective_seeds)
+    metrics.to_csv(destination / "predictive_metrics_all_seeds.csv", index=False)
+    summary.to_csv(destination / "predictive_metrics_summary.csv", index=False)
+    metadata = {
+        "data_sources": sorted(data_sources),
+        "seeds": effective_seeds,
+        "quick_run": quick_run,
+        "models": list(model_names),
+    }
+    (destination / "repeated_run_metadata.json").write_text(
+        json.dumps(metadata, indent=2), encoding="utf-8"
+    )
+    return {
+        "config": config,
+        "metrics": metrics,
+        "summary": summary,
+        "data_summary": data_summary,
+        "histories": histories,
+        "output_dir": destination,
+        "data_sources": sorted(data_sources),
+        "seeds": effective_seeds,
     }

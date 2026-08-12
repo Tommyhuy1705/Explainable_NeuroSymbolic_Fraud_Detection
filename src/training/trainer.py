@@ -42,9 +42,11 @@ def resolve_device(device: str | None = None) -> torch.device:
 
 
 def _loader(X: np.ndarray, y: np.ndarray, batch_size: int, shuffle: bool) -> DataLoader:
+    features = np.array(X, dtype=np.float32, copy=True)
+    labels = np.array(y, dtype=np.float32, copy=True)
     dataset = TensorDataset(
-        torch.as_tensor(X, dtype=torch.float32),
-        torch.as_tensor(y, dtype=torch.float32),
+        torch.from_numpy(features),
+        torch.from_numpy(labels),
     )
     return DataLoader(
         dataset,
