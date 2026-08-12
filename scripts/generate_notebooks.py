@@ -24,7 +24,21 @@ SETUP = r'''
 from pathlib import Path
 import json
 import os
+import subprocess
 import sys
+
+KAGGLE = Path("/kaggle").exists()
+REPO_URL = "https://github.com/Tommyhuy1705/Explainable_NeuroSymbolic_Fraud_Detection.git"
+KAGGLE_PROJECT_DIR = Path("/kaggle/working/Explainable_NeuroSymbolic_Fraud_Detection")
+
+if KAGGLE:
+    os.environ["THESIS_QUICK_RUN"] = "0"
+    os.environ["THESIS_SYNTHETIC_FALLBACK"] = "0"
+    if not KAGGLE_PROJECT_DIR.exists():
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "--branch", "main", REPO_URL, str(KAGGLE_PROJECT_DIR)],
+            check=True,
+        )
 
 def find_project_root() -> Path:
     candidates = [Path.cwd(), *Path.cwd().parents]
@@ -44,8 +58,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 QUICK_RUN = os.getenv("THESIS_QUICK_RUN", "0") == "1"
 ALLOW_SYNTHETIC_FALLBACK = os.getenv("THESIS_SYNTHETIC_FALLBACK", "0") == "1"
-KAGGLE = Path("/kaggle").exists()
 OUTPUT_BASE = Path("/kaggle/working/thesis_outputs") if KAGGLE else PROJECT_ROOT / "results/runs/notebooks"
+
+GIT_COMMIT = None
+if KAGGLE:
+    GIT_COMMIT = subprocess.check_output(
+        ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -56,7 +76,13 @@ from IPython.display import Markdown, display
 sns.set_theme(style="whitegrid", context="notebook")
 pd.set_option("display.max_columns", 40)
 pd.set_option("display.max_colwidth", 120)
-print({"project_root": str(PROJECT_ROOT), "quick_run": QUICK_RUN, "kaggle": KAGGLE})
+print({
+    "project_root": str(PROJECT_ROOT),
+    "git_commit": GIT_COMMIT,
+    "quick_run": QUICK_RUN,
+    "synthetic_fallback": ALLOW_SYNTHETIC_FALLBACK,
+    "kaggle": KAGGLE,
+})
 '''
 
 
@@ -72,7 +98,7 @@ def notebook(title: str, cells: list) -> nbf.NotebookNode:
 
 def build_data_exploration() -> nbf.NotebookNode:
     return notebook(
-        "01 — Data Exploration and Quality Audit",
+        "01 - Data Exploration and Quality Audit",
         [
             code(SETUP),
             md("""
@@ -172,7 +198,7 @@ def build_data_exploration() -> nbf.NotebookNode:
 
 def build_predictive_benchmarks() -> nbf.NotebookNode:
     return notebook(
-        "02 — Predictive Model Benchmarks",
+        "02 - Predictive Model Benchmarks",
         [
             code(SETUP),
             md("""
@@ -222,7 +248,7 @@ def build_predictive_benchmarks() -> nbf.NotebookNode:
             code("""
             for seed, model_histories in result["histories"].items():
                 for model_name, history in model_histories.items():
-                    display(Markdown(f"### {model_name} training history — seed {seed}"))
+                    display(Markdown(f"### {model_name} training history - seed {seed}"))
                     display(pd.DataFrame(history))
             """),
             md("## Takeaways"),
@@ -242,7 +268,7 @@ def build_predictive_benchmarks() -> nbf.NotebookNode:
 
 def build_rule_analysis() -> nbf.NotebookNode:
     return notebook(
-        "03 — LTN-Style Fraud Rule Analysis",
+        "03 - LTN-Style Fraud Rule Analysis",
         [
             code(SETUP),
             code("""
@@ -355,7 +381,7 @@ def build_rule_analysis() -> nbf.NotebookNode:
 
 def build_explanation_evaluation() -> nbf.NotebookNode:
     return notebook(
-        "04 — Rule Explanation Evaluation",
+        "04 - Rule Explanation Evaluation",
         [
             code(SETUP),
             code("""
@@ -453,7 +479,7 @@ def build_explanation_evaluation() -> nbf.NotebookNode:
 
 def build_ablation() -> nbf.NotebookNode:
     return notebook(
-        "05 — Logical Rule Ablation",
+        "05 - Logical Rule Ablation",
         [
             code(SETUP),
             code("""
@@ -544,7 +570,7 @@ def build_ablation() -> nbf.NotebookNode:
 
 def build_baf() -> nbf.NotebookNode:
     return notebook(
-        "06 — BAF External Generalization",
+        "06 - BAF External Generalization",
         [
             code(SETUP),
             code("""
@@ -736,12 +762,12 @@ def build_multi_dataset_exploration() -> nbf.NotebookNode:
         combined_summary.to_csv(output_dir / "dataset_summary.csv", index=False)
         """),
     ])
-    return notebook("01 — Multi-Dataset Exploration and Quality Audit", cells)
+    return notebook("01 - Multi-Dataset Exploration and Quality Audit", cells)
 
 
 def build_dataset_benchmark(dataset_name: str, notebook_number: str, dataset_label: str) -> nbf.NotebookNode:
     benchmark = build_predictive_benchmarks()
-    benchmark.cells[0].source = f"# {notebook_number} — {dataset_label} Predictive Model Benchmarks"
+    benchmark.cells[0].source = f"# {notebook_number} - {dataset_label} Predictive Model Benchmarks"
     for cell in benchmark.cells:
         if cell.cell_type != "code":
             continue
@@ -771,10 +797,10 @@ def main() -> None:
         "01_Data_Exploration.ipynb": build_multi_dataset_exploration(),
         "02_IEEE_CIS_Model_Benchmarks.ipynb": build_dataset_benchmark("ieee_cis", "02", "IEEE-CIS"),
         "03_BAF_Model_Benchmarks.ipynb": build_dataset_benchmark("baf", "03", "BAF"),
-        "04_IEEE_CIS_LTN_Rule_Analysis.ipynb": _retitle(build_rule_analysis(), "04 — IEEE-CIS LTN-Style Fraud Rule Analysis"),
-        "05_IEEE_CIS_Rule_Explanation_Evaluation.ipynb": _retitle(build_explanation_evaluation(), "05 — IEEE-CIS Rule Explanation Evaluation"),
-        "06_IEEE_CIS_Rule_Ablation.ipynb": _retitle(build_ablation(), "06 — IEEE-CIS Logical Rule Ablation"),
-        "07_BAF_LTN_Generalization.ipynb": _retitle(build_baf(), "07 — BAF LTN and Explanation Generalization"),
+        "04_IEEE_CIS_LTN_Rule_Analysis.ipynb": _retitle(build_rule_analysis(), "04 - IEEE-CIS LTN-Style Fraud Rule Analysis"),
+        "05_IEEE_CIS_Rule_Explanation_Evaluation.ipynb": _retitle(build_explanation_evaluation(), "05 - IEEE-CIS Rule Explanation Evaluation"),
+        "06_IEEE_CIS_Rule_Ablation.ipynb": _retitle(build_ablation(), "06 - IEEE-CIS Logical Rule Ablation"),
+        "07_BAF_LTN_Generalization.ipynb": _retitle(build_baf(), "07 - BAF LTN and Explanation Generalization"),
     }
     obsolete = {
         "02_Predictive_Model_Benchmarks.ipynb",
