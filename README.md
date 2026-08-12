@@ -64,7 +64,7 @@ Dataset không được lưu trong Git. Xem [data/README.md](data/README.md) đ�
 configs/           Dataset, model, logic và evaluation settings
 data/              Hướng dẫn dữ liệu; raw data bị gitignore
 docs/              Phạm vi khóa luận và giao thức thực nghiệm
-notebooks/         Sáu notebook độc lập, chạy được trên Kaggle
+notebooks/         Bảy notebook theo từng dataset và nhóm thực nghiệm
 results/           Bảng và hình đã chọn cho báo cáo
 scripts/           CLI chạy experiment và export kết quả
 src/               Package triển khai pipeline nghiên cứu
@@ -125,7 +125,8 @@ Synthetic data chỉ dùng để kiểm tra khả năng thực thi. Không sử 
 ```bash
 python scripts/run_experiment.py \
   --config configs/ieee_cis.yaml \
-  --data-root data/raw/ieee-cis
+  --data-root data/raw/ieee-cis \
+  --repeated
 ```
 
 Để chạy nhanh trong giai đoạn phát triển:
@@ -144,14 +145,15 @@ Artifacts được ghi vào `results/runs/<dataset>/` và không được commit
 
 | Notebook | Mục tiêu |
 |---|---|
-| `01_Data_Exploration.ipynb` | Data quality, imbalance và temporal distribution |
-| `02_Predictive_Model_Benchmarks.ipynb` | So sánh ba nhóm predictor |
-| `03_LTN_Rule_Analysis.ipynb` | Fit threshold train-only và phân tích từng luật |
-| `04_Rule_Explanation_Evaluation.ipynb` | Đánh giá explanation coverage và consistency |
-| `05_Rule_Ablation.ipynb` | Đánh giá vai trò của từng nhóm luật |
-| `06_BAF_Generalization.ipynb` | Thí nghiệm mở rộng trên BAF |
+| `01_Data_Exploration.ipynb` | Khảo sát IEEE-CIS, BAF và so sánh tổng quan giữa các dataset |
+| `02_IEEE_CIS_Model_Benchmarks.ipynb` | Benchmark MLP, TabularResNet và tree model trên IEEE-CIS |
+| `03_BAF_Model_Benchmarks.ipynb` | Benchmark MLP, TabularResNet và tree model trên BAF |
+| `04_IEEE_CIS_LTN_Rule_Analysis.ipynb` | Fit train-only và phân tích luật trên IEEE-CIS |
+| `05_IEEE_CIS_Rule_Explanation_Evaluation.ipynb` | Đánh giá explanation coverage và consistency trên IEEE-CIS |
+| `06_IEEE_CIS_Rule_Ablation.ipynb` | Đánh giá vai trò của từng nhóm luật IEEE-CIS |
+| `07_BAF_LTN_Generalization.ipynb` | Kiểm tra logic và explanation generalization trên BAF |
 
-Mỗi notebook có `QUICK_RUN`, auto-discovery cho `/kaggle/input`, synthetic fallback để smoke test và output riêng trong `/kaggle/working/thesis_outputs/`. Xem [docs/KAGGLE_GUIDE.md](docs/KAGGLE_GUIDE.md).
+Notebook exploration chạy nhiều dataset theo từng phần. Mỗi notebook model/rule còn lại khóa vào một dataset cụ thể để tránh trộn cấu hình và kết quả. Full mode là mặc định, dùng toàn bộ dữ liệu, ngân sách tối đa 100 epoch cho MLP và 150 epoch cho TabularResNet, early stopping theo validation PR-AUC và ba seed độc lập. Quick/synthetic mode chỉ được bật tường minh để smoke test. Xem [docs/KAGGLE_GUIDE.md](docs/KAGGLE_GUIDE.md).
 
 ## Evaluation contract
 
@@ -196,7 +198,7 @@ Tests tập trung vào các lỗi có thể làm sai kết luận:
 
 ## Reproducibility
 
-- Seed mặc định: `42`.
+- Kết quả model chính thức dùng các seed `[42, 123, 2026]` và báo cáo mean ± standard deviation.
 - Mọi tham số nằm trong YAML config.
 - Mỗi run xuất metrics, prediction arrays và metadata.
 - Notebook không chứa implementation chính; chúng gọi module trong `src/`.
@@ -206,6 +208,7 @@ Tests tập trung vào các lỗi có thể làm sai kết luận:
 ## Tài liệu
 
 - [Phạm vi và nội dung khóa luận](docs/PHAM_VI_VA_NOI_DUNG_KHOA_LUAN.md)
+- [Lộ trình phase và bằng chứng thực nghiệm](docs/PHASE_ROADMAP.md)
 - [Giao thức thực nghiệm](docs/EXPERIMENTAL_PROTOCOL.md)
 - [Hướng dẫn Kaggle](docs/KAGGLE_GUIDE.md)
 - [Hướng dẫn kết quả](docs/RESULTS_GUIDE.md)

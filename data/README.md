@@ -65,7 +65,7 @@ và:
 /kaggle/input/<baf-dataset-name>/Base.csv
 ```
 
-Notebook tự tìm project root và dataset files. Nếu không tìm thấy dữ liệu thật, notebook IEEE có thể dùng synthetic fallback để kiểm tra code. Kết quả fallback sẽ hiển thị `data_source = synthetic` và không được dùng trong luận văn.
+Notebook exploration đọc lần lượt IEEE-CIS và BAF theo hai phần riêng. Các notebook model/rule khóa vào dataset ghi trong tên file. Nếu không tìm thấy dữ liệu thật, notebook có thể dùng synthetic fallback để kiểm tra code. Kết quả fallback sẽ hiển thị `data_source = synthetic` và không được dùng trong luận văn.
 
 ## 5. Data integrity checklist
 

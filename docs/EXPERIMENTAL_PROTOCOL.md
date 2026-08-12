@@ -116,7 +116,7 @@ Ablation chỉ thay đổi thành phần đang kiểm tra; data split và predic
 
 ## 11. Repeated runs
 
-Smoke run dùng seed 42. Kết quả báo cáo nên dùng tối thiểu 3 seeds nếu compute cho phép. Mỗi run lưu:
+Smoke run dùng seed 42. Kết quả model chính thức bắt buộc dùng ba seed `[42, 123, 2026]`; báo cáo mean và standard deviation. Mỗi run lưu:
 
 - Config.
 - Seed.

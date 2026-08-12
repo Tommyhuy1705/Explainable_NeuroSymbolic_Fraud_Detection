@@ -14,7 +14,9 @@ Setup cell tự tìm `configs/` và `src/` trong current directory, parent direc
 
 ## 2. Gắn dữ liệu
 
-IEEE notebook cần Kaggle competition dataset IEEE-CIS Fraud Detection. BAF notebook cần dataset chứa `Base.csv`.
+`01_Data_Exploration.ipynb` đọc lần lượt IEEE-CIS và BAF trong cùng một lần chạy. Notebook model/rule được tách theo dataset: file có `IEEE_CIS` chỉ đọc IEEE-CIS, file có `BAF` chỉ đọc BAF.
+
+IEEE-CIS cần Kaggle competition dataset IEEE-CIS Fraud Detection. BAF cần dataset chứa `Base.csv`.
 
 Sau khi Add Input, chạy cell data discovery và kiểm tra:
 
@@ -26,33 +28,40 @@ Nếu hiển thị `synthetic`, notebook chỉ đang smoke test.
 
 ## 3. QUICK_RUN
 
-Notebook mặc định:
-
-```python
-QUICK_RUN = True
-```
-
-Chế độ này:
-
-- Giới hạn số dòng.
-- Giảm epoch.
-- Giảm số tree estimators.
-- Phù hợp để kiểm tra pipeline.
-
-Để tạo kết quả chính thức:
+Notebook mặc định chạy full protocol:
 
 ```python
 QUICK_RUN = False
 ALLOW_SYNTHETIC_FALLBACK = False
 ```
 
-## 4. Accelerator
+Chỉ bật smoke mode bằng biến môi trường khi kiểm tra kỹ thuật:
+
+```python
+THESIS_QUICK_RUN=1
+THESIS_SYNTHETIC_FALLBACK=1
+```
+
+Smoke mode:
+
+- Giới hạn số dòng.
+- Giảm epoch.
+- Giảm số tree estimators.
+- Phù hợp để kiểm tra pipeline.
+
+Ba epoch quan sát được trong smoke mode là giới hạn kiểm tra khả năng thực thi, không phải cấu hình huấn luyện chính thức. Full mode dùng tối đa 100 epoch cho MLP, 150 epoch cho TabularResNet, early stopping theo validation PR-AUC và ba seed độc lập.
+
+## 4. Chọn nơi chạy
+
+`01_Data_Exploration.ipynb` chỉ cần CPU và có thể chạy local. Các notebook tree-only và rule analysis cũng có thể chạy CPU. Dùng Kaggle GPU cho notebook model benchmarks khi huấn luyện MLP và TabularResNet trên dữ liệu đầy đủ.
+
+## 5. Accelerator
 
 Chọn GPU T4/P100 cho notebook neural benchmarks. Tree-only và rule analysis có thể chạy CPU.
 
 Code tự chọn CUDA khi `torch.cuda.is_available()`.
 
-## 5. Output
+## 6. Output
 
 Artifacts được ghi vào:
 
@@ -69,7 +78,7 @@ Sau khi run xong, tải về:
 
 Không coi cell output là artifact duy nhất.
 
-## 6. Full-run checklist
+## 7. Full-run checklist
 
 - Internet không cần thiết sau khi code và data đã được gắn.
 - `QUICK_RUN=False`.
@@ -80,8 +89,9 @@ Không coi cell output là artifact duy nhất.
 - Không chỉnh threshold sau khi xem test.
 - Lưu notebook version và output artifacts.
 - Ghi lại seed, config và Kaggle environment.
+- Xác nhận bảng kết quả chính thức có `n_seeds = 3` và báo cáo mean ± standard deviation.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 ### Không tìm thấy project root
 
