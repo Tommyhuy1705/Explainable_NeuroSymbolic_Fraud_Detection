@@ -34,8 +34,8 @@ models:
     learning_rate: 0.001
     weight_decay: 0.0001
     batch_size: 2048
-    epochs: 20
-    patience: 4
+    epochs: 100
+    patience: 15
   tabular_resnet:
     hidden_dim: 192
     num_blocks: 3
@@ -43,8 +43,8 @@ models:
     learning_rate: 0.001
     weight_decay: 0.0001
     batch_size: 2048
-    epochs: 25
-    patience: 5
+    epochs: 150
+    patience: 20
   tree:
     backend: xgboost
     n_estimators: 500
@@ -58,7 +58,8 @@ evaluation:
   threshold_objective: f2
   beta: 2.0
   n_calibration_bins: 15
-  bootstrap_iterations: 200
+  seed_list: [42, 123, 2026]
+  bootstrap_iterations: 1000
 
 logic:
   activation_threshold: 0.60
