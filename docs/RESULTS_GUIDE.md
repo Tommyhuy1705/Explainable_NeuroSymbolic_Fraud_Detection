@@ -47,4 +47,3 @@ figure_ieee_rule_coverage.png
 ## Synthetic results
 
 Không chuyển synthetic smoke outputs vào `results/tables` hoặc `results/figures`. Synthetic results chỉ xác nhận code chạy được và không hỗ trợ kết luận nghiên cứu.
-

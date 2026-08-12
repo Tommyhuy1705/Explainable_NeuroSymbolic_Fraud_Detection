@@ -112,4 +112,3 @@ list(Path("/kaggle/input").glob("**/Base.csv"))
 - Giảm batch size.
 - Chạy từng model riêng.
 - Không giữ nhiều DataFrame copy trong notebook.
-
