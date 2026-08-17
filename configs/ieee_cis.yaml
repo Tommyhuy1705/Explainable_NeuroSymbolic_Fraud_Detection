@@ -25,7 +25,7 @@ preprocessing:
   max_features: 120
   categorical_max_cardinality: 500
   scale_numeric: true
-  drop_columns: []
+  drop_columns: [TransactionDT]
 
 models:
   mlp:
@@ -54,12 +54,16 @@ models:
     colsample_bytree: 0.80
 
 evaluation:
-  calibration: none
+  calibration_methods: [none, platt, isotonic]
+  calibration_selection_metric: brier
+  calibration_fit_fraction: 0.50
+  reference_seed: 42
   threshold_objective: f2
   beta: 2.0
   n_calibration_bins: 15
   seed_list: [42, 123, 2026]
   bootstrap_iterations: 1000
+  predictive_bootstrap_iterations: 300
 
 logic:
   activation_threshold: 0.60

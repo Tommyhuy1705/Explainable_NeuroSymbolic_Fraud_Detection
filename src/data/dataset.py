@@ -51,6 +51,25 @@ def _read_csv(path: Path, max_rows: int | None = None) -> pd.DataFrame:
     return pd.read_csv(path, nrows=max_rows, low_memory=False)
 
 
+def _limit_rows_across_time_groups(
+    frame: pd.DataFrame,
+    time_column: str,
+    max_rows: int,
+    seed: int,
+) -> pd.DataFrame:
+    """Create a deterministic quick sample without dropping later time groups."""
+    groups = sorted(frame[time_column].dropna().unique().tolist())
+    if not groups or len(frame) <= max_rows:
+        return frame
+    base, remainder = divmod(int(max_rows), len(groups))
+    samples = []
+    for index, group in enumerate(groups):
+        group_frame = frame[frame[time_column] == group]
+        requested = base + (1 if index < remainder else 0)
+        samples.append(group_frame.sample(n=min(requested, len(group_frame)), random_state=seed + index))
+    return pd.concat(samples, ignore_index=True).sort_values(time_column, kind="mergesort").reset_index(drop=True)
+
+
 def _add_ieee_derived_features(frame: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     if "TransactionDT" in result:
@@ -89,7 +108,17 @@ def load_fraud_dataframe(
         frame = _add_ieee_derived_features(frame)
     elif name == "baf":
         data_path = resolve_data_file(dataset["data_file"], data_root)
-        frame = _read_csv(data_path, row_limit)
+        temporal_group_quick = (
+            row_limit is not None and str(config.get("split", {}).get("strategy", "")).lower() == "temporal_group"
+        )
+        frame = _read_csv(data_path, None if temporal_group_quick else row_limit)
+        if temporal_group_quick:
+            frame = _limit_rows_across_time_groups(
+                frame,
+                str(dataset["time_column"]),
+                int(row_limit),
+                int(config.get("project", {}).get("seed", 42)),
+            )
     else:
         raise ValueError(f"Unsupported dataset name: {name}")
 
@@ -97,6 +126,12 @@ def load_fraud_dataframe(
     if target not in frame:
         raise KeyError(f"Target column {target!r} is missing from the loaded dataset")
     frame[target] = pd.to_numeric(frame[target], errors="raise").astype("int8")
+    frame.attrs["dataset_name"] = name
+    frame.attrs["configured_files"] = [
+        dataset[key]
+        for key in ("transaction_file", "identity_file", "data_file")
+        if dataset.get(key)
+    ]
     return frame
 
 

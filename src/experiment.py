@@ -9,15 +9,28 @@ from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import average_precision_score, roc_auc_score
 
+from src.artifacts import (
+    capture_environment,
+    sha256_file,
+    stable_config_hash,
+    write_frozen_reference_artifact,
+)
 from src.data import (
     load_config,
     load_fraud_dataframe,
     make_synthetic_baf_data,
     make_synthetic_fraud_data,
     prepare_dataset,
+    split_integrity_summary,
 )
-from src.evaluation import ProbabilityCalibrator, evaluate_binary_predictions, select_threshold
+from src.evaluation import (
+    evaluate_binary_predictions,
+    paired_bootstrap_pr_auc_difference,
+    select_probability_calibrator,
+    select_threshold,
+)
 from src.models import FraudMLP, TabularResNet, build_tree_classifier, tree_backend_name
 from src.training import predict_torch_proba, set_global_seed, train_torch_model
 
@@ -74,15 +87,29 @@ def _evaluate_probabilities(
     validation_probabilities: np.ndarray,
     y_test: np.ndarray,
     test_probabilities: np.ndarray,
-) -> tuple[dict[str, float], dict[str, float], float, np.ndarray, np.ndarray]:
+) -> tuple[
+    dict[str, float],
+    dict[str, float],
+    float,
+    np.ndarray,
+    np.ndarray,
+    str,
+    pd.DataFrame,
+]:
     evaluation = config["evaluation"]
-    calibrator = ProbabilityCalibrator(str(evaluation.get("calibration", "none")))
-    calibrator.fit(validation_probabilities, y_validation)
-    calibrated_validation = calibrator.transform(validation_probabilities)
-    calibrated_test = calibrator.transform(test_probabilities)
-    threshold, _ = select_threshold(
+    selection = select_probability_calibrator(
         y_validation,
-        calibrated_validation,
+        validation_probabilities,
+        methods=evaluation.get("calibration_methods", [evaluation.get("calibration", "none")]),
+        selection_metric=str(evaluation.get("calibration_selection_metric", "brier")),
+        fit_fraction=float(evaluation.get("calibration_fit_fraction", 0.5)),
+        n_calibration_bins=int(evaluation.get("n_calibration_bins", 15)),
+    )
+    calibrated_validation = selection.calibrator.transform(validation_probabilities)
+    calibrated_test = selection.calibrator.transform(test_probabilities)
+    threshold, _ = select_threshold(
+        y_validation[selection.selection_indices],
+        calibrated_validation[selection.selection_indices],
         objective=str(evaluation.get("threshold_objective", "f2")),
         beta=float(evaluation.get("beta", 2.0)),
     )
@@ -93,7 +120,27 @@ def _evaluate_probabilities(
     }
     validation_metrics = evaluate_binary_predictions(y_validation, calibrated_validation, **common)
     test_metrics = evaluate_binary_predictions(y_test, calibrated_test, **common)
-    return validation_metrics, test_metrics, threshold, calibrated_validation, calibrated_test
+    validation_metrics.update(
+        {
+            "raw_pr_auc": float(average_precision_score(y_validation, validation_probabilities)),
+            "raw_roc_auc": float(roc_auc_score(y_validation, validation_probabilities)),
+        }
+    )
+    test_metrics.update(
+        {
+            "raw_pr_auc": float(average_precision_score(y_test, test_probabilities)),
+            "raw_roc_auc": float(roc_auc_score(y_test, test_probabilities)),
+        }
+    )
+    return (
+        validation_metrics,
+        test_metrics,
+        threshold,
+        calibrated_validation,
+        calibrated_test,
+        selection.method,
+        pd.DataFrame(selection.comparison),
+    )
 
 
 def run_predictive_benchmarks(
@@ -108,6 +155,7 @@ def run_predictive_benchmarks(
 ) -> dict[str, Any]:
     """Run selected predictive models under one locked evaluation protocol."""
     config = load_config(config_path)
+    model_names = tuple(model_names)
     if quick_run and max_rows is None:
         max_rows = 12000
     frame, data_source = load_experiment_data(
@@ -123,7 +171,12 @@ def run_predictive_benchmarks(
     models: dict[str, Any] = {}
     validation_probabilities: dict[str, np.ndarray] = {}
     test_probabilities: dict[str, np.ndarray] = {}
+    raw_validation_probabilities: dict[str, np.ndarray] = {}
+    raw_test_probabilities: dict[str, np.ndarray] = {}
     thresholds: dict[str, float] = {}
+    calibration_methods: dict[str, str] = {}
+    calibration_comparisons: list[pd.DataFrame] = []
+    display_names: dict[str, str] = {}
     histories: dict[str, list[dict[str, float]]] = {}
 
     for model_name in model_names:
@@ -182,41 +235,88 @@ def run_predictive_benchmarks(
         else:
             raise ValueError(f"Unsupported model name: {model_name}")
 
-        val_metrics, test_metrics, threshold, val_probability, test_probability = _evaluate_probabilities(
+        raw_val_probability = np.asarray(val_probability, dtype=float).copy()
+        raw_test_probability = np.asarray(test_probability, dtype=float).copy()
+        (
+            val_metrics,
+            test_metrics,
+            threshold,
+            val_probability,
+            test_probability,
+            calibration_method,
+            calibration_comparison,
+        ) = _evaluate_probabilities(
             config,
             prepared.y_validation,
-            val_probability,
+            raw_val_probability,
             prepared.y_test,
-            test_probability,
+            raw_test_probability,
         )
+        calibration_comparison.insert(0, "model", display_name)
+        calibration_comparison.insert(1, "model_key", model_name)
+        calibration_comparison["selected"] = calibration_comparison["method"].eq(calibration_method)
+        calibration_comparisons.append(calibration_comparison)
         for split_name, metrics in (("validation", val_metrics), ("test", test_metrics)):
             rows.append({"model": display_name, "model_key": model_name, "split": split_name, **metrics})
         models[model_name] = model
         validation_probabilities[model_name] = val_probability
         test_probabilities[model_name] = test_probability
+        raw_validation_probabilities[model_name] = raw_val_probability
+        raw_test_probabilities[model_name] = raw_test_probability
         thresholds[model_name] = threshold
+        calibration_methods[model_name] = calibration_method
+        display_names[model_name] = display_name
 
     metrics = pd.DataFrame(rows)
+    calibration_comparison_frame = pd.concat(calibration_comparisons, ignore_index=True)
     destination = Path(output_dir or config["project"]["output_dir"])
     destination.mkdir(parents=True, exist_ok=True)
     metrics.to_csv(destination / "predictive_metrics.csv", index=False)
+    calibration_comparison_frame.to_csv(destination / "calibration_comparison.csv", index=False)
     np.savez_compressed(
         destination / "predictions.npz",
         y_validation=prepared.y_validation,
         y_test=prepared.y_test,
         **{f"validation_{name}": values for name, values in validation_probabilities.items()},
         **{f"test_{name}": values for name, values in test_probabilities.items()},
+        **{f"validation_raw_{name}": values for name, values in raw_validation_probabilities.items()},
+        **{f"test_raw_{name}": values for name, values in raw_test_probabilities.items()},
     )
+    time_column = str(config["dataset"]["time_column"])
+    split_summary = split_integrity_summary(
+        prepared.train_frame, prepared.validation_frame, prepared.test_frame, time_column
+    )
+    split_summary["fraud_rate"] = [
+        float(prepared.y_train.mean()),
+        float(prepared.y_validation.mean()),
+        float(prepared.y_test.mean()),
+    ]
+    predictions_path = destination / "predictions.npz"
     metadata = {
         "data_source": data_source,
+        "dataset_name": config["dataset"]["name"],
+        "configured_files": frame.attrs.get("configured_files", []),
         "rows": len(frame),
         "features": prepared.X_train.shape[1],
+        "feature_names": prepared.feature_names,
         "thresholds": thresholds,
+        "calibration_methods": calibration_methods,
+        "display_names": display_names,
         "models": list(model_names),
         "seed": seed,
         "quick_run": quick_run,
+        "config_sha256": stable_config_hash(config),
+        "predictions_sha256": sha256_file(predictions_path),
+        "split_summary": split_summary.to_dict(orient="records"),
+        "environment": capture_environment(Path(config_path).resolve().parents[1]),
     }
-    (destination / "run_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    (destination / "run_metadata.json").write_text(
+        json.dumps(metadata, indent=2, default=str), encoding="utf-8"
+    )
+    (destination / "config_snapshot.json").write_text(
+        json.dumps(config, indent=2, default=str), encoding="utf-8"
+    )
+    split_summary.to_csv(destination / "split_summary.csv", index=False)
     return {
         "config": config,
         "frame": frame,
@@ -225,7 +325,12 @@ def run_predictive_benchmarks(
         "models": models,
         "validation_probabilities": validation_probabilities,
         "test_probabilities": test_probabilities,
+        "raw_validation_probabilities": raw_validation_probabilities,
+        "raw_test_probabilities": raw_test_probabilities,
         "thresholds": thresholds,
+        "calibration_methods": calibration_methods,
+        "calibration_comparison": calibration_comparison_frame,
+        "split_summary": split_summary,
         "histories": histories,
         "output_dir": destination,
         "data_source": data_source,
@@ -244,6 +349,7 @@ def run_repeated_predictive_benchmarks(
 ) -> dict[str, Any]:
     """Repeat the locked benchmark and report mean/std across independent seeds."""
     config = load_config(config_path)
+    model_names = tuple(model_names)
     configured_seeds = list(seeds or config["evaluation"].get("seed_list", [42, 123, 2026]))
     if not configured_seeds:
         raise ValueError("At least one experiment seed is required")
@@ -252,6 +358,7 @@ def run_repeated_predictive_benchmarks(
     destination.mkdir(parents=True, exist_ok=True)
 
     metric_frames: list[pd.DataFrame] = []
+    calibration_frames: list[pd.DataFrame] = []
     data_summary: pd.DataFrame | None = None
     histories: dict[int, dict[str, list[dict[str, float]]]] = {}
     data_sources: set[str] = set()
@@ -270,21 +377,13 @@ def run_repeated_predictive_benchmarks(
         run_metrics = run["metrics"].copy()
         run_metrics.insert(0, "seed", int(run_seed))
         metric_frames.append(run_metrics)
+        run_calibration = run["calibration_comparison"].copy()
+        run_calibration.insert(0, "seed", int(run_seed))
+        calibration_frames.append(run_calibration)
         data_sources.add(str(run["data_source"]))
         histories[int(run_seed)] = run["histories"]
         if data_summary is None:
-            prepared = run["prepared"]
-            data_summary = pd.DataFrame(
-                {
-                    "split": ["train", "validation", "test"],
-                    "rows": [len(prepared.y_train), len(prepared.y_validation), len(prepared.y_test)],
-                    "fraud_rate": [
-                        prepared.y_train.mean(),
-                        prepared.y_validation.mean(),
-                        prepared.y_test.mean(),
-                    ],
-                }
-            )
+            data_summary = run["split_summary"].copy()
         del run
         gc.collect()
         try:
@@ -308,6 +407,8 @@ def run_repeated_predictive_benchmarks(
         "nll",
         "threshold",
         "positive_rate",
+        "raw_pr_auc",
+        "raw_roc_auc",
     ]
     summary = metrics.groupby(["model", "model_key", "split"], as_index=False)[metric_columns].agg(
         ["mean", "std"]
@@ -320,13 +421,99 @@ def run_repeated_predictive_benchmarks(
     ]
     summary = summary.reset_index(drop=True)
     summary["n_seeds"] = len(effective_seeds)
+    calibration_comparison = pd.concat(calibration_frames, ignore_index=True)
     metrics.to_csv(destination / "predictive_metrics_all_seeds.csv", index=False)
     summary.to_csv(destination / "predictive_metrics_summary.csv", index=False)
+    calibration_comparison.to_csv(destination / "calibration_comparison_all_seeds.csv", index=False)
+
+    validation_summary = summary.query("split == 'validation'").sort_values(
+        ["raw_pr_auc_mean", "raw_pr_auc_std"], ascending=[False, True]
+    )
+    best_row = validation_summary.iloc[0]
+    reference_model_key = str(best_row["model_key"])
+    reference_seed = int(config["evaluation"].get("reference_seed", effective_seeds[0]))
+    if reference_seed not in effective_seeds:
+        reference_seed = int(effective_seeds[0])
+    reference_directory = destination / f"seed_{reference_seed}"
+    reference_metadata = json.loads(
+        (reference_directory / "run_metadata.json").read_text(encoding="utf-8")
+    )
+    with np.load(reference_directory / "predictions.npz") as payload:
+        y_validation = payload["y_validation"].copy()
+        y_test = payload["y_test"].copy()
+        validation_probability = payload[f"validation_{reference_model_key}"].copy()
+        test_probability = payload[f"test_{reference_model_key}"].copy()
+        validation_raw_probability = payload[f"validation_raw_{reference_model_key}"].copy()
+        test_raw_probability = payload[f"test_raw_{reference_model_key}"].copy()
+        raw_test_probabilities = {
+            model_key: payload[f"test_raw_{model_key}"].copy() for model_key in model_names
+        }
+
+    frozen_manifest = {
+        "artifact_schema_version": 1,
+        "dataset_name": config["dataset"]["name"],
+        "data_source": reference_metadata["data_source"],
+        "configured_files": reference_metadata.get("configured_files", []),
+        "model_key": reference_model_key,
+        "model": reference_metadata["display_names"][reference_model_key],
+        "selection_basis": "highest mean validation raw PR-AUC",
+        "reference_seed": reference_seed,
+        "threshold": reference_metadata["thresholds"][reference_model_key],
+        "calibration_method": reference_metadata["calibration_methods"][reference_model_key],
+        "config_sha256": stable_config_hash(config),
+        "split_summary": reference_metadata["split_summary"],
+        "feature_names": reference_metadata["feature_names"],
+        "environment": reference_metadata["environment"],
+        "quick_run": quick_run,
+    }
+    artifact_path, manifest_path = write_frozen_reference_artifact(
+        destination,
+        manifest=frozen_manifest,
+        y_validation=y_validation,
+        y_test=y_test,
+        validation_probability=validation_probability,
+        test_probability=test_probability,
+        validation_raw_probability=validation_raw_probability,
+        test_raw_probability=test_raw_probability,
+    )
+
+    bootstrap_iterations = int(config["evaluation"].get("predictive_bootstrap_iterations", 300))
+    if quick_run:
+        bootstrap_iterations = min(bootstrap_iterations, 30)
+    bootstrap_rows: list[dict[str, Any]] = []
+    for comparator in model_names:
+        if comparator == reference_model_key:
+            continue
+        comparison = paired_bootstrap_pr_auc_difference(
+            y_test,
+            raw_test_probabilities[reference_model_key],
+            raw_test_probabilities[comparator],
+            n_bootstrap=bootstrap_iterations,
+            seed=reference_seed,
+            max_rows=10000 if quick_run else None,
+        )
+        bootstrap_rows.append(
+            {
+                "reference_model_key": reference_model_key,
+                "comparator_model_key": comparator,
+                **comparison,
+            }
+        )
+    predictive_bootstrap = pd.DataFrame(bootstrap_rows)
+    predictive_bootstrap.to_csv(destination / "paired_bootstrap_model_differences.csv", index=False)
+
     metadata = {
         "data_sources": sorted(data_sources),
         "seeds": effective_seeds,
         "quick_run": quick_run,
         "models": list(model_names),
+        "selection_metric": "mean validation raw PR-AUC",
+        "reference_model_key": reference_model_key,
+        "reference_seed": reference_seed,
+        "frozen_artifact": artifact_path.name,
+        "frozen_manifest": manifest_path.name,
+        "config_sha256": stable_config_hash(config),
+        "environment": capture_environment(Path(config_path).resolve().parents[1]),
     }
     (destination / "repeated_run_metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
@@ -337,6 +524,12 @@ def run_repeated_predictive_benchmarks(
         "summary": summary,
         "data_summary": data_summary,
         "histories": histories,
+        "calibration_comparison": calibration_comparison,
+        "predictive_bootstrap": predictive_bootstrap,
+        "reference_model_key": reference_model_key,
+        "reference_seed": reference_seed,
+        "frozen_artifact_path": artifact_path,
+        "frozen_manifest_path": manifest_path,
         "output_dir": destination,
         "data_sources": sorted(data_sources),
         "seeds": effective_seeds,

@@ -6,7 +6,7 @@ from .dataset import (
     make_synthetic_baf_data,
     make_synthetic_fraud_data,
 )
-from .preprocessing import PreparedData, prepare_dataset, split_dataframe
+from .preprocessing import PreparedData, prepare_dataset, split_dataframe, split_integrity_summary
 
 __all__ = [
     "PreparedData",
@@ -16,4 +16,5 @@ __all__ = [
     "make_synthetic_fraud_data",
     "prepare_dataset",
     "split_dataframe",
+    "split_integrity_summary",
 ]

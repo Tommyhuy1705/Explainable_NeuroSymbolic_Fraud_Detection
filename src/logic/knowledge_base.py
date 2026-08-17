@@ -29,3 +29,20 @@ class FraudKnowledgeBase:
         target = frame[target_column].to_numpy(dtype=float)
         agreement = target * score + (1.0 - target) * (1.0 - score)
         return float(np.mean(agreement))
+
+    def satisfaction_breakdown(self, frame: pd.DataFrame, target_column: str) -> dict[str, float]:
+        """Report class-balanced satisfaction so rare fraud is not hidden by negatives."""
+        score = self.suspiciousness(frame)
+        target = frame[target_column].to_numpy(dtype=int)
+        positive = target == 1
+        negative = target == 0
+        if not positive.any() or not negative.any():
+            raise ValueError("Knowledge-base satisfaction requires both target classes")
+        positive_satisfaction = float(score[positive].mean())
+        negative_satisfaction = float((1.0 - score[negative]).mean())
+        return {
+            "overall_satisfaction": self.satisfaction(frame, target_column),
+            "positive_satisfaction": positive_satisfaction,
+            "negative_satisfaction": negative_satisfaction,
+            "balanced_satisfaction": 0.5 * (positive_satisfaction + negative_satisfaction),
+        }

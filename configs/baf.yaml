@@ -12,10 +12,13 @@ dataset:
   max_rows: null
 
 split:
-  strategy: temporal
-  train_size: 0.70
-  validation_size: 0.15
-  test_size: 0.15
+  strategy: temporal_group
+  train_size: 0.625
+  validation_size: 0.125
+  test_size: 0.25
+  train_groups: [0, 1, 2, 3, 4]
+  validation_groups: [5]
+  test_groups: [6, 7]
   random_state: 42
 
 preprocessing:
@@ -23,7 +26,7 @@ preprocessing:
   max_features: 100
   categorical_max_cardinality: 500
   scale_numeric: true
-  drop_columns: []
+  drop_columns: [month]
 
 models:
   mlp:
@@ -52,12 +55,16 @@ models:
     colsample_bytree: 0.85
 
 evaluation:
-  calibration: none
+  calibration_methods: [none, platt, isotonic]
+  calibration_selection_metric: brier
+  calibration_fit_fraction: 0.50
+  reference_seed: 42
   threshold_objective: f2
   beta: 2.0
   n_calibration_bins: 15
   seed_list: [42, 123, 2026]
   bootstrap_iterations: 1000
+  predictive_bootstrap_iterations: 300
 
 logic:
   activation_threshold: 0.60

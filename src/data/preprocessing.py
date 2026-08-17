@@ -63,6 +63,35 @@ def split_dataframe(
         train = ordered.iloc[:train_end]
         validation = ordered.iloc[train_end:validation_end]
         test = ordered.iloc[validation_end:]
+    elif strategy == "temporal_group":
+        if not time_column or time_column not in frame:
+            raise KeyError(f"Temporal-group split requires time column {time_column!r}")
+        train_groups = set(split_config.get("train_groups", []))
+        validation_groups = set(split_config.get("validation_groups", []))
+        test_groups = set(split_config.get("test_groups", []))
+        if not train_groups or not validation_groups or not test_groups:
+            raise ValueError(
+                "Temporal-group split requires non-empty train_groups, "
+                "validation_groups, and test_groups"
+            )
+        if (
+            train_groups & validation_groups
+            or train_groups & test_groups
+            or validation_groups & test_groups
+        ):
+            raise ValueError("Temporal-group assignments must be disjoint")
+        observed_groups = set(frame[time_column].dropna().unique().tolist())
+        configured_groups = train_groups | validation_groups | test_groups
+        missing_groups = configured_groups - observed_groups
+        unassigned_groups = observed_groups - configured_groups
+        if missing_groups:
+            raise ValueError(f"Configured temporal groups are absent from data: {sorted(missing_groups)}")
+        if unassigned_groups:
+            raise ValueError(f"Observed temporal groups are unassigned: {sorted(unassigned_groups)}")
+        ordered = frame.sort_values(time_column, kind="mergesort")
+        train = ordered[ordered[time_column].isin(train_groups)]
+        validation = ordered[ordered[time_column].isin(validation_groups)]
+        test = ordered[ordered[time_column].isin(test_groups)]
     elif strategy == "stratified":
         random_state = int(split_config.get("random_state", 42))
         train, remainder = train_test_split(
@@ -84,6 +113,42 @@ def split_dataframe(
     if min(len(train), len(validation), len(test)) == 0:
         raise ValueError("A data split is empty; provide more rows or adjust split sizes")
     return train.copy(), validation.copy(), test.copy()
+
+
+def split_integrity_summary(
+    train: pd.DataFrame,
+    validation: pd.DataFrame,
+    test: pd.DataFrame,
+    time_column: str,
+) -> pd.DataFrame:
+    """Summarize temporal boundaries and group overlap for an executed split."""
+    frames = {"train": train, "validation": validation, "test": test}
+    group_sets = {
+        name: set(frame[time_column].dropna().unique().tolist()) for name, frame in frames.items()
+    }
+    # Named temporal groups such as BAF months are useful audit evidence.  A
+    # transaction timestamp such as IEEE-CIS TransactionDT can contain hundreds
+    # of thousands of distinct values, so serializing every value would make the
+    # run metadata needlessly large.  Bound only the displayed values; overlap
+    # checks below still use the complete sets.
+    display_groups = sum(len(groups) for groups in group_sets.values()) <= 256
+    rows: list[dict[str, Any]] = []
+    for name, frame in frames.items():
+        other_groups = set().union(*(groups for key, groups in group_sets.items() if key != name))
+        groups = group_sets[name]
+        rows.append(
+            {
+                "split": name,
+                "rows": len(frame),
+                "time_min": frame[time_column].min(),
+                "time_max": frame[time_column].max(),
+                "time_group_count": len(groups),
+                "time_groups": sorted(groups) if display_groups else [],
+                "overlap_groups": sorted(groups & other_groups) if display_groups else [],
+                "group_disjoint": not bool(groups & other_groups),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 class FraudPreprocessor:
