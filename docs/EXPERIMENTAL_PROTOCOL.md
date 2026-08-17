@@ -6,11 +6,19 @@ Tài liệu này khóa các quyết định đánh giá trước khi đọc kế
 
 ## 2. Data split
 
-Mặc định sử dụng temporal split:
+IEEE-CIS sử dụng temporal row split:
 
 - Train: 70% thời gian đầu.
 - Validation: 15% tiếp theo.
 - Test: 15% cuối.
+
+BAF sử dụng month-disjoint split theo tám tháng:
+
+- Train: tháng 0-4.
+- Validation: tháng 5.
+- Test: tháng 6-7.
+
+Không được cắt cùng một giá trị `month` qua nhiều split. Raw `TransactionDT` và `month` chỉ dùng để chia tập; predictor không dùng raw split key.
 
 Nếu dataset không có biến thời gian đáng tin cậy, sử dụng stratified split với seed cố định và ghi rõ lý do.
 
@@ -31,8 +39,8 @@ Chỉ train được phép dùng để fit:
 Validation được dùng để:
 
 - Theo dõi early stopping.
-- Fit Platt hoặc isotonic calibration khi bật.
-- Chọn decision threshold theo F1/F2.
+- Nửa đầu validation fit Platt/isotonic calibration.
+- Nửa sau validation chọn calibration method theo Brier score và chọn decision threshold theo F1/F2.
 - Chọn model/config trong phạm vi budget đã định trước.
 - Chọn activation threshold nếu có thí nghiệm sensitivity riêng.
 
@@ -125,6 +133,10 @@ Smoke run dùng seed 42. Kết quả model chính thức bắt buộc dùng ba s
 - Metrics.
 - Prediction arrays.
 - Thời điểm chạy và môi trường.
+- Raw và calibrated prediction arrays.
+- Config hash, prediction checksum và split-group summary.
+
+Reference predictor được chọn theo mean validation raw PR-AUC. Seed tham chiếu được khóa trước là 42. Paired bootstrap trên cùng test rows định lượng chênh lệch PR-AUC giữa reference model và các baselines.
 
 ## 12. Claim boundaries
 

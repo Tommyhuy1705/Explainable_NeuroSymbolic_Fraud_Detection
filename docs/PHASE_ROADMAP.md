@@ -81,6 +81,7 @@
 - `scripts/run_experiment.py`
 - `scripts/export_thesis_results.py`
 - `scripts/generate_notebooks.py`
+- `notebooks/08_Cross_Dataset_Result_Synthesis.ipynb`
 - `docs/EXPERIMENTAL_PROTOCOL.md`
 - `docs/RESULTS_GUIDE.md`
 - `docs/KAGGLE_GUIDE.md`
@@ -90,6 +91,7 @@
 - Một pipeline tái lập từ dữ liệu đến prediction, rule evidence và report artifacts.
 - Kết quả model chính thức trên ba seed `[42, 123, 2026]`, báo cáo mean ± standard deviation.
 - Test chỉ được đánh giá bằng quyết định đã khóa từ train/validation.
+- Frozen predictor artifacts đảm bảo explanation và ablation không thay đổi model outputs.
 
 ## Local và Kaggle
 

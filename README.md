@@ -64,7 +64,7 @@ Dataset không được lưu trong Git. Xem [data/README.md](data/README.md) đ�
 configs/           Dataset, model, logic và evaluation settings
 data/              Hướng dẫn dữ liệu; raw data bị gitignore
 docs/              Phạm vi khóa luận và giao thức thực nghiệm
-notebooks/         Bảy notebook theo từng dataset và nhóm thực nghiệm
+notebooks/         Tám notebook theo dependency từ data audit đến tổng hợp kết quả
 results/           Bảng và hình đã chọn cho báo cáo
 scripts/           CLI chạy experiment và export kết quả
 src/               Package triển khai pipeline nghiên cứu
@@ -152,15 +152,16 @@ Artifacts được ghi vào `results/runs/<dataset>/` và không được commit
 | `05_IEEE_CIS_Rule_Explanation_Evaluation.ipynb` | Đánh giá explanation coverage và consistency trên IEEE-CIS |
 | `06_IEEE_CIS_Rule_Ablation.ipynb` | Đánh giá vai trò của từng nhóm luật IEEE-CIS |
 | `07_BAF_LTN_Generalization.ipynb` | Kiểm tra logic và explanation generalization trên BAF |
+| `08_Cross_Dataset_Result_Synthesis.ipynb` | Tổng hợp prediction, bootstrap, logic và explanation giữa hai dataset |
 
-Notebook exploration chạy nhiều dataset theo từng phần. Mỗi notebook model/rule còn lại khóa vào một dataset cụ thể để tránh trộn cấu hình và kết quả. Full mode là mặc định, dùng toàn bộ dữ liệu, ngân sách tối đa 100 epoch cho MLP và 150 epoch cho TabularResNet, early stopping theo validation PR-AUC và ba seed độc lập. Quick/synthetic mode chỉ được bật tường minh để smoke test. Xem [docs/KAGGLE_GUIDE.md](docs/KAGGLE_GUIDE.md).
+Notebook exploration chạy nhiều dataset theo từng phần. BAF dùng các nhóm tháng không giao nhau: train `0-4`, validation `5`, test `6-7`. Mỗi notebook model/rule còn lại khóa vào một dataset cụ thể để tránh trộn cấu hình và kết quả. Full mode là mặc định, dùng toàn bộ dữ liệu, ngân sách tối đa 100 epoch cho MLP và 150 epoch cho TabularResNet, early stopping theo validation PR-AUC và ba seed độc lập. Quick/synthetic mode chỉ được bật tường minh để smoke test. Xem [docs/KAGGLE_GUIDE.md](docs/KAGGLE_GUIDE.md).
 
 ## Evaluation contract
 
 1. Split dữ liệu trước mọi thao tác học tham số.
 2. Preprocessor chỉ fit trên train.
 3. Model chỉ fit trên train.
-4. Calibration và threshold chỉ fit/chọn trên validation.
+4. Calibration fit trên nửa đầu validation; calibration method và threshold được chọn trên nửa sau validation.
 5. Rule quantiles và category-risk mapping chỉ fit trên train.
 6. Test được đánh giá một lần bằng toàn bộ quyết định đã khóa.
 7. Không dùng test để chọn feature, rule, model hoặc hyperparameter.
@@ -200,7 +201,9 @@ Tests tập trung vào các lỗi có thể làm sai kết luận:
 
 - Kết quả model chính thức dùng các seed `[42, 123, 2026]` và báo cáo mean ± standard deviation.
 - Mọi tham số nằm trong YAML config.
-- Mỗi run xuất metrics, prediction arrays và metadata.
+- Mỗi run xuất raw/calibrated predictions, calibration comparison, metrics và environment metadata.
+- Benchmark chọn reference predictor bằng mean validation raw PR-AUC và xuất frozen artifact có checksum.
+- Notebook 05-07 chỉ đọc frozen predictor; ablation không được train lại model.
 - Notebook không chứa implementation chính; chúng gọi module trong `src/`.
 - Kết quả synthetic phải được gắn nhãn rõ và không dùng trong báo cáo.
 - Kết quả chính thức phải lưu config, data source, row count và feature count.

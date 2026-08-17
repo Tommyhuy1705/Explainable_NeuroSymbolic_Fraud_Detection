@@ -57,7 +57,7 @@ Ba epoch quan sát được trong smoke mode là giới hạn kiểm tra khả n
 
 ## 5. Accelerator
 
-Chọn GPU T4/P100 cho notebook neural benchmarks. Tree-only và rule analysis có thể chạy CPU.
+Chọn GPU Tesla T4 cho notebook neural benchmarks. Không dùng P100 nếu PyTorch hiện tại không còn kernel `sm_60`. Tree-only và rule analysis có thể chạy CPU.
 
 Code tự chọn CUDA khi `torch.cuda.is_available()`.
 
@@ -75,10 +75,25 @@ Sau khi run xong, tải về:
 - Figures.
 - `run_metadata.json`.
 - `predictions.npz` nếu cần tái phân tích.
+- `frozen_reference_artifact.npz` và `frozen_reference_manifest.json`.
+- `calibration_comparison_all_seeds.csv` và `paired_bootstrap_model_differences.csv`.
 
 Không coi cell output là artifact duy nhất.
 
-## 7. Full-run checklist
+## 7. Artifact dependency giữa notebooks
+
+Notebook 05 và 06 cần output của Notebook 02. Notebook 07 cần output của Notebook 03. Dùng **Add Input -> Notebook Output** để gắn benchmark output tương ứng; không upload lại source repo.
+
+Notebook 08 cần outputs của Notebook 02-07. Code kiểm tra config hash, label alignment và file checksum trước khi tổng hợp.
+
+Thứ tự chạy:
+
+1. Notebook 01.
+2. Notebook 02, 03 và 04 có thể chạy song song.
+3. Notebook 05, 06 và 07 có thể chạy song song sau khi frozen artifacts đã có.
+4. Notebook 08 chạy cuối.
+
+## 8. Full-run checklist
 
 - Internet không cần thiết sau khi code và data đã được gắn.
 - `QUICK_RUN=False`.
@@ -91,7 +106,7 @@ Không coi cell output là artifact duy nhất.
 - Ghi lại seed, config và Kaggle environment.
 - Xác nhận bảng kết quả chính thức có `n_seeds = 3` và báo cáo mean ± standard deviation.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 ### Không tìm thấy project root
 

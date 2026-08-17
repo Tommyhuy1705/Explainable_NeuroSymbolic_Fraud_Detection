@@ -7,6 +7,17 @@ Mỗi run ghi vào `results/runs/<dataset>/`:
 - `predictive_metrics.csv`.
 - `predictions.npz`.
 - `run_metadata.json`.
+- `calibration_comparison.csv`.
+- `split_summary.csv`.
+- `config_snapshot.json`.
+
+Mỗi repeated benchmark còn xuất:
+
+- `predictive_metrics_all_seeds.csv` và `predictive_metrics_summary.csv`.
+- `calibration_comparison_all_seeds.csv`.
+- `paired_bootstrap_model_differences.csv`.
+- `frozen_reference_artifact.npz` và `frozen_reference_manifest.json`.
+- `repeated_run_metadata.json`.
 
 Thư mục `results/runs/` bị gitignore để tránh commit output thử nghiệm hoặc file lớn.
 
@@ -27,6 +38,7 @@ Mỗi bảng/hình dùng trong khóa luận phải truy vết được đến:
 - Dataset version.
 - Seed.
 - Run metadata.
+- Frozen artifact checksum và config hash khi kết quả phụ thuộc predictor.
 
 ## Naming convention
 

@@ -48,6 +48,8 @@ Target: `fraud_bool`.
 
 Biến thời gian: `month`.
 
+Protocol chính thức dùng train tháng `0-4`, validation tháng `5`, test tháng `6-7`. Các nhóm tháng phải hoàn toàn không giao nhau. `month` chỉ dùng làm split key và bị loại khỏi predictor features.
+
 Nếu Kaggle dataset dùng tên thư mục khác, không cần đổi code. Loader tìm file theo tên bên dưới `/kaggle/input/`.
 
 ## 4. Kaggle setup
@@ -75,6 +77,7 @@ Trước khi chạy kết quả chính thức, kiểm tra:
 - ID không bị trùng ngoài dự kiến.
 - Tỷ lệ gian lận theo từng split.
 - Thứ tự thời gian của train, validation và test.
+- Với BAF, `overlap_groups` phải rỗng cho cả ba split.
 - Số dòng trước và sau merge.
 - Feature không chứa target proxy hoặc thông tin phát sinh sau quyết định.
 - Không fit imputer, scaler, category mapping hoặc rule threshold trên validation/test.
