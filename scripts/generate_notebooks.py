@@ -144,14 +144,46 @@ def exploration_section(label: str, config_name: str, synthetic_factory: str, sl
         missing.to_csv(output_dir / "{slug}_missingness.csv")
         '''),
         code(f'''
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-        integrity.plot.bar(x="split", y="fraud_rate", ax=axes[0], legend=False, color="#C44E52")
+        top_missing = missing.loc[missing["missing_fraction"] > 0].head(20).sort_values("missing_fraction")
+        fig, axes = plt.subplots(
+            1,
+            2,
+            figsize=(16, 7),
+            gridspec_kw={{"width_ratios": [1.0, 1.45]}},
+        )
+        integrity.plot.bar(
+            x="split", y="fraud_rate", ax=axes[0], legend=False, color="#C44E52", rot=0
+        )
         axes[0].set_title("{label.split('. ', 1)[-1]} fraud rate by split")
         axes[0].set_ylabel("Fraud rate")
-        missing.head(20).sort_values("missing_fraction").plot.barh(ax=axes[1], legend=False, color="#4C72B0")
-        axes[1].set_title("Top missing columns")
-        axes[1].set_xlabel("Missing fraction")
-        plt.tight_layout()
+        axes[0].set_xlabel("Split")
+        axes[0].margins(x=0.12)
+
+        if top_missing.empty:
+            axes[1].set_title("Missingness audit")
+            axes[1].text(
+                0.5,
+                0.5,
+                "No missing values detected",
+                ha="center",
+                va="center",
+                fontsize=13,
+                color="#4C72B0",
+                transform=axes[1].transAxes,
+            )
+            axes[1].set_xticks([])
+            axes[1].set_yticks([])
+            for spine in axes[1].spines.values():
+                spine.set_visible(False)
+        else:
+            top_missing.plot.barh(ax=axes[1], legend=False, color="#4C72B0")
+            axes[1].set_title("Top missing columns")
+            axes[1].set_xlabel("Missing fraction")
+            axes[1].set_ylabel("Feature")
+            axes[1].tick_params(axis="y", labelsize=10, pad=7)
+            axes[1].margins(y=0.03)
+
+        fig.subplots_adjust(left=0.08, right=0.97, bottom=0.12, top=0.90, wspace=0.55)
         fig.savefig(output_dir / "{slug}_data_quality.png", dpi=160, bbox_inches="tight")
         plt.show()
         '''),
@@ -187,9 +219,18 @@ def build_exploration() -> nbf.NotebookNode:
         combined_summary = pd.concat(dataset_summaries, ignore_index=True)
         display(combined_summary)
         combined_summary.to_csv(output_dir / "dataset_summary.csv", index=False)
-        ax = combined_summary.plot.bar(x="dataset", y="fraud_rate", legend=False, color=["#4C72B0", "#55A868"])
+        ax = combined_summary.plot.bar(
+            x="dataset",
+            y="fraud_rate",
+            legend=False,
+            color=["#4C72B0", "#55A868"],
+            figsize=(8, 5),
+            rot=0,
+        )
         ax.set_title("Fraud prevalence across datasets")
         ax.set_ylabel("Fraud rate")
+        ax.set_xlabel("Dataset")
+        ax.margins(x=0.15)
         plt.tight_layout()
         plt.savefig(output_dir / "dataset_fraud_rate_comparison.png", dpi=160, bbox_inches="tight")
         plt.show()
