@@ -6,17 +6,25 @@ Upload notebook từ thư mục `notebooks/` hoặc tạo Kaggle Notebook rồi 
 
 Các file trong `notebooks/` được sinh từ `scripts/generate_notebooks.py`. Khi thay đổi source cell, sửa generator rồi sinh lại toàn bộ notebook; không duy trì một bản sửa tay chỉ tồn tại trong `.ipynb`. Trước khi upload, chạy notebook source-sync check để bảo đảm file đã sinh đúng generator.
 
-Project code có thể được cung cấp theo một trong ba cách:
+Notebook 04-08 luôn dùng public repository trong
+`/kaggle/working/Explainable_NeuroSymbolic_Fraud_Detection`. Setup cell clone `main` khi thư mục
+chưa tồn tại và chạy `git pull --ff-only` khi kernel đang giữ một clone từ lần chạy trước. Các
+thư mục dưới `/kaggle/input` chỉ được dùng làm dữ liệu hoặc upstream artifacts, không bao giờ
+được chọn làm project source.
 
-1. Clone public repository vào `/kaggle/working` khi Internet được bật; đây là cách mặc định của notebook hiện tại.
-2. Upload repository thành Kaggle Dataset và gắn bằng **Add Input** khi cần chạy offline hoặc khóa một snapshot source.
-3. Upload source cùng notebook.
+Quy tắc này ngăn output Notebook 02/03 vô tình mang theo một snapshot `src/` cũ rồi che khuất
+source mới. Setup cũng xóa các module `src.*` đã được import khỏi kernel cache trước khi các cell
+phân tích chạy lại. Vì vậy, bật Internet cho cell setup và xác nhận `project_source_policy` bằng
+`working_clone_main`.
 
-Setup cell của Notebook 01 và 04-08 tìm một source tree có cả `configs/` và `src/` trong current directory, parent directories, `/kaggle/working` và `/kaggle/input` trước. Chỉ khi không tìm thấy source tree nào và đang ở Kaggle, cell mới clone public repository vào `/kaggle/working`. Vì vậy, source snapshot đã gắn bằng **Add Input** có thể chạy offline mà không bị buộc clone.
+Notebook 01 giữ nguyên setup source của full EDA đã chạy thành công tại commit `3118c9c` để
+source tiếp tục khớp output hiện có. Notebook này chỉ gắn hai raw datasets, không gắn output
+02/03 có source snapshot cũ, và không phải dependency của Notebook 08. Nếu sau này cần đổi
+setup của Notebook 01 thì phải chạy lại toàn bộ EDA và lưu một version output mới.
 
 Notebook 02 và 03 là hai executed benchmark artifacts đang được giữ nguyên từng byte để cell source tiếp tục khớp đúng output Kaggle đã chạy. Hai file này vì thế vẫn giữ setup của lần chạy gốc: trên Kaggle, chúng clone public repository nếu `/kaggle/working/Explainable_NeuroSymbolic_Fraud_Detection` chưa tồn tại và luôn khóa full mode. Không sửa setup của 02/03 mà giữ lại output cũ. Nếu sau này cần chạy lại 02/03 bằng source snapshot offline, phải tạo một notebook version mới, chạy lại toàn bộ benchmark và xuất frozen artifacts mới tương ứng.
 
-Clone qua HTTPS chỉ hoạt động không cần credentials khi repository là public. Nếu repository private, Kaggle cần GitHub token/secret hoặc một source dataset snapshot; không ghi token trực tiếp vào notebook. Khi clone source mới nhất, lưu `git_commit` và audit-pipeline fingerprint trong lineage để các artifact downstream truy vết được đúng phiên bản code.
+Clone qua HTTPS chỉ hoạt động không cần credentials khi repository là public. Nếu repository private, Kaggle cần GitHub token/secret; không ghi token trực tiếp vào notebook. Một workflow offline/pinned-source phải được thiết kế thành notebook variant riêng và không được trộn với protocol clone-main hiện tại. Khi clone source mới nhất, lưu `git_commit` và audit-pipeline fingerprint trong lineage để các artifact downstream truy vết được đúng phiên bản code.
 
 Trước khi upload notebook, chạy đúng hai lệnh source-sync sau từ project root:
 
@@ -144,7 +152,7 @@ Tên file `07_BAF_LTN_Generalization.ipynb` được giữ để không phá Kag
 
 ## 8. Full-run checklist
 
-- Internet không cần thiết sau khi code và data đã được gắn.
+- Internet phải bật khi setup clone hoặc fast-forward project source; các cell còn lại chỉ đọc data/artifacts đã gắn.
 - `QUICK_RUN=False`.
 - `ALLOW_SYNTHETIC_FALLBACK=False`.
 - Không có synthetic fallback: Notebook 01 phải báo `official_benchmark_file`, Notebook 02-07 phải báo `real`.
@@ -164,17 +172,21 @@ Tên file `07_BAF_LTN_Generalization.ipynb` được giữ để không phá Kag
 
 ### Không tìm thấy project root
 
-Đảm bảo input chứa cả `src/` và `configs/`. Có thể đặt thủ công:
-
-```python
-PROJECT_ROOT = Path("/kaggle/input/<project-dataset>/Explainable_NeuroSymbolic_Fraud_Detection")
-```
-
-Nếu dùng clone workflow, kiểm tra Internet đang bật và repository public, sau đó xác nhận thư mục sau tồn tại:
+Kiểm tra Internet đang bật và repository public, sau đó xác nhận thư mục clone làm việc tồn tại:
 
 ```python
 Path("/kaggle/working/Explainable_NeuroSymbolic_Fraud_Detection/src").is_dir()
 ```
+
+Không đặt `PROJECT_ROOT` vào `/kaggle/input`: upstream notebook outputs có thể chứa snapshot
+source cũ không tương thích với notebook hiện tại.
+
+### Thiếu thuộc tính hoặc metric vừa được bổ sung
+
+Trong Notebook 04-08, các lỗi như `FittedCondition` thiếu `numeric_fill_value` hoặc kết quả explanation thiếu
+`unsupported_alert_rate` cho biết notebook đang import một snapshot `src` cũ. Mở notebook
+version mới nhất, bật Internet và chạy **Run All** từ cell đầu tiên. Setup phải in
+`project_source_policy = working_clone_main` cùng `git_commit` mới nhất.
 
 ### Không tìm thấy dataset
 

@@ -45,6 +45,29 @@ def test_frozen_preflight_is_generated_for_every_downstream_notebook():
         assert "Full thesis evaluation cannot consume a synthetic-fallback frozen artifact" in source
 
 
+def test_downstream_kaggle_setup_cannot_import_source_from_attached_outputs():
+    notebooks = build_all_notebooks()
+    for filename in (
+        "04_IEEE_CIS_LTN_Rule_Analysis.ipynb",
+        "05_IEEE_CIS_Rule_Explanation_Evaluation.ipynb",
+        "06_IEEE_CIS_Rule_Ablation.ipynb",
+        "07_BAF_LTN_Generalization.ipynb",
+        "08_Cross_Dataset_Result_Synthesis.ipynb",
+    ):
+        setup = notebooks[filename].cells[1].source
+        assert "PROJECT_ROOT = sync_kaggle_project() if KAGGLE else find_project_root()" in setup
+        assert '["git", "-C", str(KAGGLE_PROJECT_DIR), "pull", "--ff-only", "origin", "main"]' in setup
+        assert 'module_name == "src" or module_name.startswith("src.")' in setup
+        assert 'for base in (Path("/kaggle/working"), Path("/kaggle/input"))' not in setup
+        assert 'INPUT_ROOTS.append(Path("/kaggle/input"))' in setup
+
+
+def test_executed_eda_keeps_its_existing_setup_source():
+    setup = build_all_notebooks()["01_Data_Exploration.ipynb"].cells[1].source
+    assert "PROJECT_ROOT = find_project_root()" in setup
+    assert "project_source_policy" not in setup
+
+
 def test_synthesis_uses_manifest_selection_and_post_hoc_claim_boundary():
     source = "\n".join(
         cell.source for cell in build_all_notebooks()["08_Cross_Dataset_Result_Synthesis.ipynb"].cells

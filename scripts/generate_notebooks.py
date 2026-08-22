@@ -21,7 +21,10 @@ def code(text: str):
     return nbf.v4.new_code_cell(dedent(text).strip())
 
 
-SETUP = r'''
+# Preserve Notebook 01's successfully executed setup source byte-for-byte. It
+# only consumes direct dataset inputs and is not an upstream dependency of the
+# lineage-gated synthesis notebook.
+EDA_SETUP = r'''
 from pathlib import Path
 import hashlib
 import json
@@ -117,6 +120,128 @@ pd.set_option("display.max_columns", 50)
 pd.set_option("display.max_colwidth", 120)
 print({
     "project_root": str(PROJECT_ROOT),
+    "git_commit": GIT_COMMIT,
+    "quick_run": QUICK_RUN,
+    "synthetic_fallback": ALLOW_SYNTHETIC_FALLBACK,
+    "kaggle": KAGGLE,
+})
+'''
+
+
+# Notebook 04-08 may attach upstream notebook outputs that themselves contain
+# an old repository clone. Their setup must never discover executable source
+# under /kaggle/input.
+SETUP = r'''
+from pathlib import Path
+import hashlib
+import json
+import os
+import subprocess
+import sys
+
+KAGGLE = Path("/kaggle").exists()
+REPO_URL = "https://github.com/Tommyhuy1705/Explainable_NeuroSymbolic_Fraud_Detection.git"
+KAGGLE_PROJECT_DIR = Path("/kaggle/working/Explainable_NeuroSymbolic_Fraud_Detection")
+
+if KAGGLE:
+    os.environ.setdefault("THESIS_QUICK_RUN", "0")
+    os.environ.setdefault("THESIS_SYNTHETIC_FALLBACK", "0")
+
+def sync_kaggle_project() -> Path:
+    """Use one current working clone; never import source bundled in an input artifact."""
+    if not KAGGLE_PROJECT_DIR.exists():
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "--branch", "main", REPO_URL, str(KAGGLE_PROJECT_DIR)],
+            check=True,
+        )
+    else:
+        if not (KAGGLE_PROJECT_DIR / ".git").is_dir():
+            raise RuntimeError(
+                f"Kaggle project path exists but is not a Git clone: {KAGGLE_PROJECT_DIR}"
+            )
+        subprocess.run(
+            ["git", "-C", str(KAGGLE_PROJECT_DIR), "pull", "--ff-only", "origin", "main"],
+            check=True,
+        )
+    return KAGGLE_PROJECT_DIR.resolve()
+
+def find_project_root() -> Path | None:
+    direct_candidates = [Path.cwd(), *Path.cwd().parents]
+    for candidate in direct_candidates:
+        if (candidate / "src").is_dir() and (candidate / "configs").is_dir():
+            return candidate.resolve()
+    return None
+
+PROJECT_ROOT = sync_kaggle_project() if KAGGLE else find_project_root()
+if PROJECT_ROOT is None:
+    raise FileNotFoundError("Project root with src/ and configs/ was not found")
+
+project_root_string = str(PROJECT_ROOT)
+while project_root_string in sys.path:
+    sys.path.remove(project_root_string)
+sys.path.insert(0, project_root_string)
+
+# Run All can reuse a live Kaggle kernel. Remove previously imported project
+# modules so an updated working clone cannot be shadowed by stale objects.
+for module_name in tuple(sys.modules):
+    if module_name == "src" or module_name.startswith("src."):
+        del sys.modules[module_name]
+
+AUDIT_SOURCE_FILES = (
+    "scripts/generate_notebooks.py",
+    "src/artifacts.py",
+    "src/data/dataset.py",
+    "src/data/preprocessing.py",
+    "src/experiment.py",
+    "src/explanation/explanation_metrics.py",
+    "src/explanation/rule_explainer.py",
+    "src/logic/fraud_rules.py",
+    "src/logic/knowledge_base.py",
+    "src/logic/predicates.py",
+    "src/logic/tensor_logic.py",
+)
+
+def audit_pipeline_fingerprint(config_path: Path) -> str:
+    paths = [PROJECT_ROOT / relative for relative in AUDIT_SOURCE_FILES]
+    paths.append(Path(config_path))
+    missing = [str(path) for path in paths if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Files required for the audit-pipeline fingerprint are missing: {missing}")
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda item: item.relative_to(PROJECT_ROOT).as_posix()):
+        relative = path.relative_to(PROJECT_ROOT).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+QUICK_RUN = os.getenv("THESIS_QUICK_RUN", "0") == "1"
+ALLOW_SYNTHETIC_FALLBACK = os.getenv("THESIS_SYNTHETIC_FALLBACK", "0") == "1"
+OUTPUT_BASE = Path("/kaggle/working/thesis_outputs") if KAGGLE else PROJECT_ROOT / "results/runs/notebooks"
+INPUT_ROOTS = [OUTPUT_BASE, PROJECT_ROOT / "results/runs/notebooks"]
+if Path("/kaggle/input").exists():
+    INPUT_ROOTS.append(Path("/kaggle/input"))
+
+try:
+    GIT_COMMIT = subprocess.check_output(
+        ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"], text=True
+    ).strip()
+except (OSError, subprocess.CalledProcessError):
+    GIT_COMMIT = None
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from IPython.display import Markdown, display
+
+sns.set_theme(style="whitegrid", context="notebook")
+pd.set_option("display.max_columns", 50)
+pd.set_option("display.max_colwidth", 120)
+print({
+    "project_root": str(PROJECT_ROOT),
+    "project_source_policy": "working_clone_main" if KAGGLE else "local_project_root",
     "git_commit": GIT_COMMIT,
     "quick_run": QUICK_RUN,
     "synthetic_fallback": ALLOW_SYNTHETIC_FALLBACK,
@@ -405,7 +530,7 @@ def exploration_section(
 
 def build_exploration() -> nbf.NotebookNode:
     cells = [
-        code(SETUP),
+        code(EDA_SETUP),
         md("""
         ## Thiết lập
 
