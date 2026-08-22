@@ -20,6 +20,10 @@ Thumbs.db
 # Raw data and large artifacts
 data/raw/
 data/processed/
+# Common local Kaggle dataset layouts; keep data/README.md tracked.
+data/ieee-fraud-detection/
+data/baf/
+data/bank-account-fraud-dataset-suite-neurips-2022/
 artifacts/
 checkpoints/
 /models/

@@ -11,6 +11,26 @@ import pandas as pd
 from .predicates import fuzzy_and, greater_than, less_than, outside_range
 
 
+RELATIVE_SOFTNESS_OPERATORS = {"greater_quantile", "less_quantile", "category_risk"}
+ABSOLUTE_SOFTNESS_OPERATORS = {"greater", "less", "outside_range"}
+
+
+def _default_softness_mode(operator: str) -> str:
+    """Return the scale semantics implied by a rule operator.
+
+    Train-fitted quantiles use a threshold-relative transition width. Explicit
+    numeric domain thresholds use the feature's native units. Category risks
+    remain relative to preserve their established behaviour on the normalized
+    risk scale. ``equals`` is crisp and therefore does not consume softness.
+    """
+
+    if operator in RELATIVE_SOFTNESS_OPERATORS:
+        return "relative"
+    if operator in ABSOLUTE_SOFTNESS_OPERATORS or operator == "equals":
+        return "absolute"
+    raise ValueError(f"Unsupported rule operator: {operator}")
+
+
 @dataclass
 class FittedCondition:
     feature: str
@@ -19,6 +39,8 @@ class FittedCondition:
     threshold: Any
     softness: float
     category_risk: dict[str, float] = field(default_factory=dict)
+    softness_mode: str = "relative"
+    numeric_fill_value: float | None = None
 
     def evaluate(self, frame: pd.DataFrame) -> np.ndarray:
         if self.feature not in frame:
@@ -26,20 +48,32 @@ class FittedCondition:
         series = frame[self.feature]
         if self.operator == "category_risk":
             risks = series.astype("string").fillna("<MISSING>").map(self.category_risk).fillna(0.0)
-            return greater_than(risks.to_numpy(float), float(self.threshold), self.softness)
+            return greater_than(
+                risks.to_numpy(float),
+                float(self.threshold),
+                self.softness,
+                self.softness_mode,
+            )
         if self.operator == "equals":
             return (series.fillna("<MISSING>").astype(str) == str(self.threshold)).to_numpy(float)
 
         values = pd.to_numeric(series, errors="coerce").to_numpy(float)
-        fill_value = float(np.nanmedian(values)) if np.isfinite(values).any() else 0.0
-        values = np.nan_to_num(values, nan=fill_value)
+        if self.numeric_fill_value is None:
+            raise RuntimeError("Numeric rule condition is missing its train-fitted imputation value")
+        values = np.nan_to_num(values, nan=float(self.numeric_fill_value))
         if self.operator in {"greater", "greater_quantile"}:
-            return greater_than(values, float(self.threshold), self.softness)
+            return greater_than(values, float(self.threshold), self.softness, self.softness_mode)
         if self.operator in {"less", "less_quantile"}:
-            return less_than(values, float(self.threshold), self.softness)
+            return less_than(values, float(self.threshold), self.softness, self.softness_mode)
         if self.operator == "outside_range":
             lower, upper = self.threshold
-            return outside_range(values, float(lower), float(upper), self.softness)
+            return outside_range(
+                values,
+                float(lower),
+                float(upper),
+                self.softness,
+                self.softness_mode,
+            )
         raise ValueError(f"Unsupported rule operator: {self.operator}")
 
 
@@ -88,10 +122,17 @@ class FraudRuleEngine:
         operator = condition["operator"]
         configured_value = condition["value"]
         softness = float(condition.get("softness", 0.1))
+        softness_mode = str(condition.get("softness_mode", _default_softness_mode(operator)))
         category_risk: dict[str, float] = {}
+        numeric_fill_value: float | None = None
 
-        if operator in {"greater_quantile", "less_quantile"}:
+        if operator not in {"category_risk", "equals"}:
             numeric = pd.to_numeric(frame[feature], errors="coerce")
+            finite_numeric = numeric.dropna()
+            numeric_fill_value = (
+                float(finite_numeric.median()) if not finite_numeric.empty else 0.0
+            )
+        if operator in {"greater_quantile", "less_quantile"}:
             threshold: Any = float(numeric.quantile(float(configured_value)))
         elif operator == "category_risk":
             category_risk = _smoothed_category_risk(frame[feature], target)
@@ -104,7 +145,9 @@ class FraudRuleEngine:
             configured_value=configured_value,
             threshold=threshold,
             softness=softness,
+            softness_mode=softness_mode,
             category_risk=category_risk,
+            numeric_fill_value=numeric_fill_value,
         )
 
     def fit(self, frame: pd.DataFrame, target_column: str) -> "FraudRuleEngine":
@@ -156,6 +199,9 @@ class FraudRuleEngine:
                         "operator": condition.operator,
                         "configured_value": condition.configured_value,
                         "fitted_threshold": condition.threshold,
+                        "softness": condition.softness,
+                        "softness_mode": condition.softness_mode,
+                        "fitted_missing_value": condition.numeric_fill_value,
                     }
                 )
         return pd.DataFrame(rows)

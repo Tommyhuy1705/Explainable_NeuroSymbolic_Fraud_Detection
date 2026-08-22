@@ -95,6 +95,7 @@ def load_fraud_dataframe(
     if name == "ieee_cis":
         transaction_path = resolve_data_file(dataset["transaction_file"], data_root)
         frame = _read_csv(transaction_path, row_limit)
+        identity_join_coverage: float | None = None
         identity_name = dataset.get("identity_file")
         if identity_name:
             try:
@@ -104,6 +105,9 @@ def load_fraud_dataframe(
             if identity_path is not None:
                 identity = _read_csv(identity_path, None)
                 id_column = dataset.get("id_column", "TransactionID")
+                if identity[id_column].duplicated().any():
+                    raise ValueError(f"Identity key {id_column!r} must be unique before the IEEE-CIS merge")
+                identity_join_coverage = float(frame[id_column].isin(identity[id_column]).mean())
                 frame = frame.merge(identity, how="left", on=id_column, validate="one_to_one")
         frame = _add_ieee_derived_features(frame)
     elif name == "baf":
@@ -132,6 +136,13 @@ def load_fraud_dataframe(
         for key in ("transaction_file", "identity_file", "data_file")
         if dataset.get(key)
     ]
+    frame.attrs["benchmark_type"] = (
+        "privacy_preserving_synthetic_benchmark"
+        if name == "baf"
+        else "observational_competition_benchmark"
+    )
+    if name == "ieee_cis":
+        frame.attrs["identity_join_coverage"] = identity_join_coverage
     return frame
 
 

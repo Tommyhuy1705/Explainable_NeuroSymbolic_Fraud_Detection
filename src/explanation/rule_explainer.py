@@ -20,6 +20,8 @@ class RuleExplainer:
         self.rule_engine = rule_engine
         self.activation_threshold = float(activation_threshold)
         self.top_k_rules = int(top_k_rules)
+        if self.top_k_rules < 1:
+            raise ValueError("top_k_rules must be at least 1")
 
     def explain(
         self,
@@ -39,10 +41,13 @@ class RuleExplainer:
 
         records: list[dict[str, Any]] = []
         for position, (index, row) in enumerate(truth.iterrows()):
-            active = row[row >= self.activation_threshold].sort_values(ascending=False).head(self.top_k_rules)
-            rule_names = active.index.tolist()
-            strengths = [float(value) for value in active.to_numpy()]
+            all_active = row[row >= self.activation_threshold].sort_values(ascending=False)
+            displayed = all_active.head(self.top_k_rules)
+            rule_names = displayed.index.tolist()
+            strengths = [float(value) for value in displayed.to_numpy()]
             evidence = [descriptions[name] for name in rule_names]
+            active_rule_count = int(len(all_active))
+            displayed_rule_count = int(len(displayed))
             records.append(
                 {
                     "row_index": index,
@@ -50,8 +55,13 @@ class RuleExplainer:
                     "predicted_alert": bool(probabilities[position] >= decision_threshold)
                     if np.isfinite(probabilities[position])
                     else None,
-                    "explained": bool(rule_names),
-                    "rule_count": len(rule_names),
+                    "explained": bool(active_rule_count),
+                    # `rule_count` remains as a backward-compatible alias for the
+                    # true count; `displayed_rule_count` records the top-k cap.
+                    "rule_count": active_rule_count,
+                    "active_rule_count": active_rule_count,
+                    "displayed_rule_count": displayed_rule_count,
+                    "available_rule_count": int(truth.shape[1]),
                     "rule_names": rule_names,
                     "rule_strengths": strengths,
                     "max_rule_strength": max(strengths, default=0.0),
