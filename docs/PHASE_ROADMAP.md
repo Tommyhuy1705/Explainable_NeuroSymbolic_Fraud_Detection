@@ -123,3 +123,93 @@ pytest -q tests/test_notebook_generation.py
 ```
 
 Sau vòng sửa logic/metric hiện tại, giữ frozen outputs 02/03 nếu vẫn qua compatibility checks; rerun Notebook 01 để cập nhật EDA và rerun 04-07 để cập nhật bằng chứng rule/explanation. Notebook 01 có thể chạy song song và không phải dependency của 08; Notebook 08 chỉ chạy sau khi outputs 02-07 và lineage audits tương ứng đã sẵn sàng.
+
+## Phase 13 — Stress-test foundation và provenance lock
+
+### Nội dung
+
+- Xây dựng pipeline stress test độc lập để không làm thay đổi lineage Notebook 01-08.
+- Khóa TransXion canonical `tx.csv` theo official repository commit/SHA-256; ghi rõ `v2` là paper revision, không phải dataset release.
+- Khóa AMLNet v1.0 theo Zenodo DOI/exact filename/MD5/CC BY-NC 4.0 và ghi source-version discrepancy.
+- Implement checksum-first discovery, schema validation, safe AMLNet metadata timestamp parser và stable temporal split 60/20/20.
+- Xây causal history features theo chiều quá khứ, feature denylist và split-integrity checks.
+- Implement TabularResNetV2, XGBoost và LightGBM theo cùng protocol; calibration, threshold lock và frozen predictor artifact.
+
+### File chính
+
+- `configs/stress/transxion_v2.yaml`
+- `configs/stress/amlnet_v1.yaml`
+- `src/stress_testing/data.py`
+- `src/stress_testing/predictors.py`
+- `src/stress_testing/metrics.py`
+- `src/stress_testing/artifacts.py`
+- `tests/test_stress_data.py`
+- `tests/test_stress_predictors.py`
+- `tests/test_stress_metrics.py`
+
+### Kết quả và phạm vi chứng minh
+
+- Data/provenance manifests và split-integrity tables có thể audit.
+- Ba predictor families được so sánh dưới cùng split/feature contract; không silent-fallback trong full mode.
+- Frozen predictor boundary ngăn rule layer thay đổi prediction sau khi model/calibration/threshold đã khóa.
+- Phase này chỉ xây nền tảng và protocol; không tự tạo ra bằng chứng rule-added value khi chưa chạy full experiments.
+
+## Phase 14 — Dataset-specific stress experiments
+
+### Nội dung
+
+- Chạy một notebook riêng cho TransXion và một notebook riêng cho AMLNet.
+- Sinh Tier A domain-prespecified, Tier B train-derived/counterfactual-assisted và Tier C empirical baseline candidates; counterfactual interventions tái tính derived semantic features theo contract.
+- Tính attribution support quanh frozen predictor; audit, ghi failure reasons và deduplicate candidate rules chỉ trên frozen-predictor alerts của validation audit role.
+- Fit và freeze contrastive TP-vs-FP meta-scorer từ audited rules cùng frozen risk trên `rule_audit`, có explicit fallback khi thiếu mẫu/lớp/variation.
+- Kiểm tra guarded ensemble và toàn bộ proposal baselines bằng cùng validation stability gate.
+- Khóa evidence method, rule weights, risk bins và selective policies trên validation policy role.
+- Đánh giá fixed coverages 5%/10%/25%/50%, trong đó 10%/25% là primary; so sánh score-only guardrail tại cùng exact budget.
+- Đánh giá abstention, matched-risk, residual TP-vs-FP, paired bootstrap, policy stability và negative controls.
+
+### File chính
+
+- `src/stress_testing/attribution.py`
+- `src/stress_testing/rule_audit.py`
+- `src/stress_testing/selective_policy.py`
+- `src/stress_testing/matched_risk.py`
+- `src/stress_testing/experiment.py`
+- `notebooks/09_TransXion_v2_Stress_Test.ipynb`
+- `notebooks/10_AMLNet_v1_0_Stress_Test.ipynb`
+- `scripts/generate_stress_test_notebooks.py`
+- `tests/test_stress_attribution.py`
+- `tests/test_stress_vasre.py`
+- `tests/test_stress_notebook_generation.py`
+
+### Kết quả và phạm vi chứng minh
+
+- Full output package cho từng dataset: data/split/predictor manifests, rule registry/audit/redundancy, locked policies, coverage results, matched-risk, residual evidence, bootstrap, stability, negative controls và lineage.
+- TransXion kiểm tra framework trong difficult-AML setting; AMLNet kiểm tra saturation/limited headroom.
+- Rule-added value chỉ được hỗ trợ nếu kết quả vượt score-only ổn định tại coverage đã khóa và qua uncertainty/negative-control checks.
+- Negative hoặc inconclusive result là kết quả hợp lệ; không thay rule/coverage theo locked test.
+
+## Phase 15 — Stress synthesis và thesis claim audit
+
+### Nội dung
+
+- Gắn completed output packages của Notebook 09 và 10, kiểm tra exact dataset identity, full/fixture mode, config/source fingerprints và output checksums.
+- Tổng hợp predictor quality, rule audit, coverage trade-off, score-only guardrail, abstention, matched-risk, residual TP-vs-FP, uncertainty, stability và controls.
+- Phân loại kết quả thành positive, negative, inconclusive hoặc blocked-by-data-quality/lineage.
+- Viết claim matrix theo vai trò stress test thay vì gộp chúng như hai primary datasets.
+
+### File chính
+
+- `notebooks/11_Stress_Test_Synthesis.ipynb`
+- `docs/STRESS_TEST_PROTOCOL.md`
+- `docs/RESULTS_GUIDE.md`
+- `docs/KAGGLE_GUIDE.md`
+
+### Kết quả và phạm vi chứng minh
+
+- Synthesis chỉ đọc artifacts; không train model, sinh rule hoặc chọn lại policy.
+- Có thể nêu framework hoạt động/không hoạt động đến mức nào trong hai điều kiện stress đã định nghĩa.
+- Không tuyên bố causal explanation, universal superiority, external validation trên dữ liệu ngân hàng thật hoặc production readiness.
+
+## Thứ tự chạy stress extension
+
+Notebook 09 và 10 độc lập và có thể chạy song song trên hai Kaggle T4 sessions. Chỉ chạy Notebook 11 sau khi cả hai completed full output versions đã được gắn. Fixture/quick mode chỉ dùng cho smoke test và không được đưa vào thesis claims.

@@ -220,3 +220,149 @@ Nếu có nhiều output cùng dataset, bỏ các input version cũ để prefli
 - Giảm batch size.
 - Chạy từng model riêng.
 - Không giữ nhiều DataFrame copy trong notebook.
+
+## 10. Stress-test extension: TransXion và AMLNet
+
+### 10.1. Notebook source và phạm vi
+
+Notebook 09-11 thuộc stress-test extension và được sinh từ generator stress-test riêng. Việc tách generator giúp không làm thay đổi source/output lineage đã khóa của Notebook 01-08. Không sửa tay Notebook 09-11 cho full run; mọi thay đổi phải đi qua generator và source-sync tests tương ứng.
+
+```bash
+python scripts/generate_stress_test_notebooks.py
+pytest -q tests/test_stress_notebook_generation.py
+```
+
+TransXion và AMLNet là stress tests, không phải dataset chính thứ ba/thứ tư. TransXion kiểm tra bối cảnh AML khó; AMLNet kiểm tra saturation/limited headroom. Xem claim boundaries đầy đủ trong [STRESS_TEST_PROTOCOL.md](STRESS_TEST_PROTOCOL.md).
+
+### 10.2. Raw inputs và checksum
+
+Notebook 09 cần exact file TransXion:
+
+```text
+tx.csv
+SHA-256: d6c345f07a8d8e26123dba5fe4f6572ef198e04fb94f9b53facb3fef6d197a35
+official source commit: 53932595c37c23b9f55ea5ddf5984e4d57b88369
+```
+
+`v2` trong tên notebook là revision v2 của paper arXiv, không phải một dataset release/tag `v2`. Official sources: <https://github.com/chaos-max/TransXion> và <https://arxiv.org/html/2604.17420v2>.
+
+Notebook 10 cần exact AMLNet file:
+
+```text
+AMLNet_August 2025.csv
+MD5: 7668fc7d74c787e07546ce85c6f790b9
+Zenodo DOI: 10.5281/zenodo.16736515
+license: CC BY-NC 4.0
+```
+
+Official record: <https://zenodo.org/records/16736515>. Zenodo identity được khóa là v1/v1.0 dù README preview của nguồn có thể hiển thị `VERSION 2.0`; notebook phải ghi discrepancy và không tự đổi version label.
+
+Không có official Kaggle mirror đã được project xác minh cho hai file này. Quy trình an toàn:
+
+1. Tải từ official source theo điều khoản tương ứng.
+2. Kiểm tra checksum local.
+3. Upload exact file thành private Kaggle Dataset nếu cần.
+4. Dùng **Add Input** và để preflight tìm exact filename, kiểm tra checksum/schema.
+5. Không upload raw data vào GitHub hoặc notebook output.
+
+Notebook 09 chỉ gắn TransXion input; Notebook 10 chỉ gắn AMLNet input. Tên thư mục Kaggle có thể khác, vì loader tìm exact filename đệ quy dưới `/kaggle/input`. Notebook 11 không cần raw datasets; nó gắn output packages của 09 và 10 bằng **Add Input -> Notebook Output**.
+
+### 10.3. Full mode, fixture mode và accelerator
+
+Stress notebooks mặc định full mode. Fixture/quick mode chỉ dùng cho smoke test và phải được bật tường minh trước setup cell, ví dụ:
+
+```text
+THESIS_STRESS_TEST_FIXTURE=1
+THESIS_STRESS_QUICK_RUN=1
+```
+
+Fixture mode chỉ kiểm tra schema, split, artifacts và notebook flow. Nó không thay thế TransXion/AMLNet, không được curate và không được đưa vào claim. Full synthesis phải từ chối upstream artifact có `fixture=true` hoặc `quick_run=true`.
+
+Notebook 09 và 10 nên chọn **Tesla T4**. Full stress protocol chạy TabularResNetV2, XGBoost, LightGBM, attribution, bootstrap và policy audit trên file lớn. T4 phù hợp với PyTorch build hiện hành; không chọn P100 nếu build không còn kernel `sm_60`. XGBoost/LightGBM có thể chạy CPU khi GPU backend không khả dụng, nhưng full mode không được silent-fallback sang model family khác. Notebook 11 chỉ tổng hợp và có thể chạy CPU.
+
+Setup cell kiểm tra trực tiếp các version ranges trong `requirements.txt` và chỉ sửa package ngoài
+Torch khi package bị thiếu hoặc nằm ngoài range; nó không tự thay PyTorch/CUDA wheel. Với vendor
+image thiếu metadata wheel, phiên bản Torch được lấy từ `torch.__version__` rồi vẫn phải qua cùng
+range check. Full mode dừng nếu môi trường không hợp lệ. Chỉ cặp cờ explicit
+`THESIS_STRESS_QUICK_RUN=1` + `THESIS_STRESS_TEST_FIXTURE=1` được phép tiếp tục để smoke-test với
+cảnh báo version; artifact đó luôn claim-ineligible và không được dùng trong khóa luận.
+Vì setup clone nhánh `main`, toàn bộ stress snapshot phải được commit/push trước khi import notebook;
+file chỉ tồn tại local sẽ không xuất hiện trong Kaggle kernel.
+
+Để một run còn phù hợp giới hạn Kaggle, stress config dùng một seed định trước (`42`) cho mỗi trong ba model families, 500 boosting rounds và tối đa 50 neural epochs. Đây vẫn là full-data stress run, không phải quick mode. IEEE-CIS/BAF giữ protocol ba seed riêng; với TransXion/AMLNet, báo cáo phải ghi multi-seed training variance chưa được ước lượng và không được diễn giải policy bootstrap như một thay thế tương đương.
+
+### 10.4. Thứ tự chạy
+
+1. `09_TransXion_v2_Stress_Test.ipynb` và `10_AMLNet_v1_0_Stress_Test.ipynb` có thể chạy song song trên hai Kaggle sessions.
+2. Lưu một completed full output version cho mỗi notebook.
+3. Import `11_Stress_Test_Synthesis.ipynb` và gắn cả hai completed outputs.
+4. Chạy Notebook 11 từ kernel sạch. Preflight phải tìm đúng một TransXion package và một AMLNet package, kiểm tra dataset identity, checksum, full/fixture mode, config/source fingerprint và output checksums.
+
+Notebook 09/10 tự huấn luyện và freeze predictor của dataset cụ thể; chúng không dùng frozen artifacts của IEEE-CIS/BAF. Notebook 11 không train lại predictor, sinh lại rule hoặc chọn lại evidence method/coverage theo test.
+
+### 10.5. Output package
+
+Mỗi Notebook 09/10 tối thiểu phải xuất:
+
+```text
+data_manifest.json
+split_integrity.csv
+predictive_metrics.csv
+predictor_explanation_sensitivity.csv
+predictor_attribution_sensitivity.csv
+predictor_contrastive_sensitivity.csv
+contrastive_meta_coefficients.csv
+contrastive_meta_provenance.json
+predictor_manifest.json
+rule_registry.csv
+rule_audit.csv
+rule_audit_stability.csv
+rule_redundancy.csv
+locked_policies.json
+policy_candidates_validation.csv
+ablation_validation_results.csv
+ablation_validation_stability.csv
+ablation_rule_selection.csv
+ablation_rule_pool_provenance.json
+ablation_results.csv
+coverage_results.csv
+matched_risk_results.csv
+residual_evidence.csv
+paired_bootstrap.csv
+validation_stability.csv
+negative_controls.csv
+stress_test_manifest.json
+stress_lineage.json
+```
+
+Notebook 11 xuất thêm `primary_stress_test_synthesis.csv`, `stress_input_eligibility.csv`,
+`synthesis_manifest.json` và `synthesis_lineage.json`; không dùng bảng synthesis nếu checksum
+upstream hoặc checksum của chính synthesis package không qua.
+
+Sau khi **Save Version -> Save & Run All** hoàn tất, dùng notebook output của chính version đó làm input downstream. Việc Kaggle liên kết notebook với GitHub không tự động thay thế output package; code source và run artifacts là hai dependency khác nhau.
+
+### 10.6. Full-run checklist
+
+- Exact TransXion SHA-256/commit hoặc AMLNet MD5/DOI đã qua preflight.
+- AMLNet metadata timestamp parse rate đạt 100%; không có `eval`/`exec`; stable temporal sort đã qua audit.
+- Split 60/20/20 và validation roles không chồng lấn.
+- Denylist không xuất hiện trong predictor feature schema; causal history features không tính row hiện tại.
+- TabularResNetV2, XGBoost và LightGBM được ghi đúng family; full run không silent-fallback.
+- Predictor/calibration/threshold đã freeze trước rule audit/policy evaluation.
+- Rule candidates có Tier A/B/C và provenance; Tier C chỉ là baseline, không đi vào primary A/B policy; audit/TP-FP/weights/deduplication chỉ dùng predictor alerts và failure reasons được lưu.
+- Counterfactual intervention contract tái tính derived semantic features; derived outputs không được perturb trực tiếp.
+- Predictor sensitivity có đủ XGBoost, LightGBM và TabularResNetV2 với attribution riêng; rule-set origin được ghi rõ.
+- Ablation có full A/B, domain Tier A only, exact counterfactual-only, all Tier B, từng evidence method, guarded ensemble, CART, signed native-attribution top-k và validation label/weight shuffle controls; mọi variant đều qua cùng resampling-stability gate.
+- Coverage 5/10/25/50% đủ, với 10/25% đánh dấu primary; chỉ active-rule rows được tính explanation. Khi test support bị thiếu, VASRE được phép underfill và score-only core comparator phải dùng đúng cùng realized count; requested-budget score-only chỉ là diagnostic.
+- Abstention, matched-risk, residual TP-vs-FP, paired bootstrap, stability và negative controls đều có output.
+- Negative/saturation result không bị xóa hoặc thay policy sau khi xem test.
+
+### 10.7. Troubleshooting
+
+**Checksum không khớp:** không tắt checksum verification để ép full run chạy. Kiểm tra file bị tải thiếu, nén, đổi format hoặc thuộc source version khác. Không thay identity contract sau khi nhìn test result.
+
+**AMLNet timestamp parse thất bại:** xem raw examples dưới dạng chuỗi, không thực thi metadata. Nếu format khác exact v1.0 file, dừng full run và kiểm tra lại DOI/MD5 thay vì fallback sang row order hoặc `step`.
+
+**Out of memory:** `max_rows`/fixture mode chỉ dùng để debug. Với full run, ưu tiên chunked loading, dtype optimization và tách sessions; không giảm dữ liệu rồi gắn nhãn full result.
+
+**Rule policy không vượt score-only:** đây không phải lỗi nếu lineage, data quality, policy lock và uncertainty checks đều hợp lệ. Báo cáo là negative/inconclusive hoặc saturation tùy bằng chứng; không chọn lại rule/coverage từ test.

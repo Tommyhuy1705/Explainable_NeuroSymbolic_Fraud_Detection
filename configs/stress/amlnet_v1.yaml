@@ -1,0 +1,289 @@
+project:
+  name: explainable_neurosymbolic_fraud_detection
+  experiment: amlnet_v1_0_stress_test
+  seed: 42
+  output_dir: results/stress/amlnet_v1_0
+  claim_scope: saturation_and_limit_stress_test
+
+dataset:
+  name: amlnet_v1_0
+  canonical_dataset_name: AMLNet
+  data_file: AMLNet_August 2025.csv
+  target_column: isMoneyLaundering
+  metadata_column: metadata
+  source_doi: 10.5281/zenodo.16736515
+  source_record: https://zenodo.org/records/16736515
+  version: "1.0"
+  license: CC BY-NC 4.0
+  source_version_discrepancy: Zenodo record is v1/v1.0 while the current repository README preview may display VERSION 2.0; this run is pinned to the exact Zenodo file and MD5 below.
+  checksum:
+    algorithm: md5
+    value: 7668fc7d74c787e07546ce85c6f790b9
+  verify_checksum: true
+  add_history_features: true
+  leakage_denylist:
+    - label
+    - auxiliary_fraud_label
+    - auxiliary_money_laundering_label
+    - money_laundering_typology
+    - fraud_probability
+    - metadata
+    - step
+    - sender_balance_after
+    - balance_depletion_fraction
+    - reported_hour
+    - reported_day_of_week
+    - reported_day_of_month
+    - reported_month
+
+split:
+  strategy: timestamp_safe_temporal
+  train_size: 0.60
+  validation_size: 0.20
+  test_size: 0.20
+  validation_roles: [calibration_fit, calibration_select, rule_audit, policy_select]
+
+preprocessing:
+  max_missing_fraction: 0.95
+  max_features: 100
+  categorical_max_cardinality: 1000
+  scale_numeric: true
+  drop_columns:
+    - label
+    - event_time
+    - __source_order
+    - sender_account_id
+    - receiver_account_id
+    - auxiliary_fraud_label
+    - auxiliary_money_laundering_label
+    - money_laundering_typology
+    - fraud_probability
+    - metadata
+    - step
+    - sender_balance_after
+    - balance_depletion_fraction
+    - reported_hour
+    - reported_day_of_week
+    - reported_day_of_month
+    - reported_month
+
+models:
+  families: [xgboost, lightgbm, tabular_resnet_v2]
+  selection_metric: pr_auc
+  # Stress datasets are supplementary and very large. One pre-registered
+  # training seed per family keeps a full Kaggle run feasible; uncertainty in
+  # selective policy is estimated separately by validation resampling and
+  # paired temporal-block bootstrap.
+  seeds: [42]
+  xgboost:
+    n_estimators: 500
+    max_depth: 8
+    learning_rate: 0.04
+    subsample: 0.85
+    colsample_bytree: 0.80
+    min_child_weight: 2.0
+    reg_lambda: 1.0
+  lightgbm:
+    n_estimators: 500
+    num_leaves: 63
+    learning_rate: 0.04
+    subsample: 0.85
+    subsample_freq: 1
+    colsample_bytree: 0.85
+    min_child_samples: 20
+    reg_lambda: 1.0
+  tabular_resnet_v2:
+    hidden_dim: 192
+    num_blocks: 4
+    expansion_factor: 2
+    dropout: 0.15
+    epochs: 50
+    batch_size: 4096
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    gradient_clip_norm: 5.0
+  quick_overrides:
+    tree_n_estimators: 25
+    neural_epochs: 2
+    neural_hidden_dim: 48
+    neural_num_blocks: 2
+
+evaluation:
+  calibration_methods: [none, platt, isotonic]
+  calibration_selection_metric: brier
+  threshold_objective: f2
+  beta: 2.0
+  n_calibration_bins: 15
+  recall_fpr: 0.01
+  coverages: [0.05, 0.10, 0.25, 0.50]
+  primary_coverages: [0.10, 0.25]
+  bootstrap_iterations: 1000
+  bootstrap_block: calendar_day
+  confidence_level: 0.95
+  matched_risk_bins: 20
+  matched_risk_caliper: 0.02
+  policy_resampling_seeds: [42, 123, 2026, 1705, 2027]
+  minimum_score_only_delta: 0.005
+  saturation_headroom: 0.05
+  saturation_precision_margin: 0.02
+  saturation_evidence_margin: 0.05
+  minimum_positive_stability_fraction: 0.80
+  minimum_saturation_alert_positives: 20
+  minimum_saturation_matched_pairs: 20
+  minimum_saturation_bootstrap_replicates: 200
+
+logic:
+  activation_threshold: 0.60
+  max_jaccard: 0.85
+  max_rules: 12
+  fp_penalty: 1.0
+  evidence_methods: [unweighted, audit_weighted, fp_penalized, attribution_gated, contrastive_meta, guarded_ensemble]
+  contrastive_meta:
+    enabled: true
+    minimum_alert_rows: 50
+    minimum_rows_per_class: 10
+    regularization_c: 1.0
+    max_iter: 1000
+  guarded_ensemble:
+    enabled: true
+    aggregation: arithmetic_mean
+    components: [fp_penalized, attribution_gated, contrastive_meta]
+  audit_criteria:
+    min_active_count: 20
+    min_coverage: 0.001
+    max_coverage: 0.50
+    min_precision_gain: 0.0
+    min_lift: 1.0
+    min_tp_fp_gap: 0.0
+    max_fp_activation: 0.50
+    max_coverage_shift: 0.15
+    max_lift_log_shift: 1.50
+    min_attribution_hit_rate: 0.05
+    min_attribution_share: 0.01
+  policy_guardrails:
+    minimum_supported_alert_fraction: 0.05
+    minimum_evidence_tp_fp_gap: 0.0
+    minimum_positive_region_fidelity: 0.50
+    require_full_budget_support: true
+    minimum_policy_stability_fraction: 0.60
+  rules:
+    - name: high_transaction_amount
+      tier: A
+      description: The transaction amount is extreme relative to the training period.
+      conditions:
+        - feature: amount
+          operator: greater_quantile
+          value: 0.99
+          softness: 0.15
+    - name: just_below_reporting_threshold
+      tier: A
+      description: The amount falls immediately below the pre-specified AUD 10,000 reporting threshold.
+      conditions:
+        - feature: amount
+          operator: greater
+          value: 9000
+          softness: 250
+        - feature: amount
+          operator: less
+          value: 10000
+          softness: 250
+    - name: rapid_sender_high_amount
+      tier: A
+      description: A sender transacts again unusually quickly with a high amount.
+      conditions:
+        - feature: sender_seconds_since_previous
+          operator: less_quantile
+          value: 0.05
+          softness: 0.20
+        - feature: amount
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.20
+    - name: unusual_hour_high_amount
+      tier: A
+      description: A high-value transaction occurs outside the ordinary daytime interval.
+      conditions:
+        - feature: event_hour
+          operator: outside_range
+          value: [6, 23]
+          softness: 1.5
+        - feature: amount
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.20
+    - name: high_amount_to_available_balance
+      tier: A
+      description: The transaction amount is large relative to the sender's pre-transaction balance.
+      conditions:
+        - feature: amount_to_sender_balance_fraction
+          operator: greater
+          value: 0.80
+          softness: 0.10
+    - name: new_counterparty_high_amount
+      tier: A
+      description: A high-value transfer occurs across a previously unseen account pair.
+      conditions:
+        - feature: pair_prior_transaction_count
+          operator: equals
+          value: 0
+        - feature: amount
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.20
+    - name: risky_category_high_amount
+      tier: B
+      description: A train-fitted risky transaction category co-occurs with a high amount.
+      conditions:
+        - feature: category
+          operator: category_risk
+          value: 0.70
+          softness: 0.10
+        - feature: amount
+          operator: greater_quantile
+          value: 0.90
+          softness: 0.20
+
+counterfactual_candidates:
+  enabled: true
+  numeric_features:
+    - amount
+    - sender_balance_before
+  non_intervenable_derived_features:
+    - sender_seconds_since_previous
+    - receiver_seconds_since_previous
+    - pair_prior_transaction_count
+  derived_feature_contract:
+    amount:
+      - output: amount_log
+        formula: log1p_nonnegative
+        inputs: [amount]
+      - output: amount_to_sender_balance_fraction
+        formula: amount_to_absolute_balance_fraction
+        inputs: [amount, sender_balance_before]
+    sender_balance_before:
+      - output: amount_to_sender_balance_fraction
+        formula: amount_to_absolute_balance_fraction
+        inputs: [amount, sender_balance_before]
+  minimum_mean_score_drop: 0.002
+  minimum_affected_fraction: 0.05
+  minimum_tail_rows: 25
+  rule_quantile: 0.95
+  softness: 0.15
+  max_rules: 5
+  max_rows: 100000
+  score_mode: raw
+
+surrogate:
+  enabled: true
+  max_depth: 3
+  min_samples_leaf: 100
+  max_rules: 8
+  target: score
+  score_mode: calibrated
+
+reporting:
+  dataset_label: AMLNet v1.0
+  required_claim_flags: [checksum_verified, full_dataset, policy_locked_before_test, all_predictor_attributions_available]
+  report_negative_results: true
+  report_fallbacks: true
+  report_saturation: true

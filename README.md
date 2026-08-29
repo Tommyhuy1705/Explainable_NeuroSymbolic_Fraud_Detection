@@ -64,6 +64,19 @@ BAF là benchmark tổng hợp bảo toàn riêng tư (privacy-preserving synthe
 
 BAF có thể mã hóa giá trị không có/không áp dụng bằng sentinel `-1` ở một số trường. Vì vậy, kết quả `0` native `NaN` không đồng nghĩa dữ liệu hoàn toàn không có missingness về mặt ngữ nghĩa. Protocol hiện tại giữ nguyên `-1` như giá trị mã hóa do benchmark cung cấp, không tự động đổi thành `NaN`; EDA kiểm đếm native `NaN` và sentinel `-1` riêng, và báo cáo phải nêu quyết định xử lý này như một giả định phương pháp.
 
+### Stress-test extension: TransXion và AMLNet
+
+Hai dataset bổ sung được dùng như **stress tests**, không phải dataset chính thứ ba và thứ tư:
+
+- **TransXion** kiểm tra framework trong một AML benchmark khó, quy mô lớn và có nhãn rất hiếm. Tên notebook `TransXion_v2` chỉ revision v2 của paper arXiv; official repository không có một dataset release `v2` riêng. Full run khóa canonical `tx.csv` theo official repository commit và SHA-256.
+- **AMLNet v1.0** kiểm tra trường hợp saturation/limited headroom, nơi score-only predictor có thể đã rất mạnh. Full run khóa Zenodo DOI, exact filename và MD5; dữ liệu mang giấy phép CC BY-NC 4.0.
+
+Proposal còn đặt European Credit Card Fraud ở vai trò stress test phụ lục; phase hiện tại chỉ triển khai hai dataset được yêu cầu ở trên và không tự nhận là đã hoàn tất stress matrix ba dataset.
+
+Hai stress tests dùng temporal split 60/20/20, ba predictor families TabularResNetV2/XGBoost/LightGBM, validation roles tách biệt, frozen predictor, rule audit và selective coverages cố định 5%/10%/25%/50%. Rule audit, TP/FP statistics, weighting và deduplication chỉ dùng vùng cảnh báo của predictor đã đóng băng; TN/FN ngoài vùng này không tham gia chọn luật. Chỉ alert có audited rule đạt activation threshold mới được tính là có explanation. Tier C CART được giữ làm baseline; primary policy chỉ dùng Tier A/B. Counterfactual interventions tái tính các đặc trưng dẫn xuất theo contract trong YAML để không tạo hàng nội bộ bất nhất. Contrastive meta-scorer dùng audited rule truth cùng frozen calibrated risk, được fit riêng trên TP/FP alerts của `rule_audit` rồi đóng băng. Guarded ensemble được khóa trước là trung bình của FP-penalized, attribution-gated và contrastive evidence; nó vẫn phải vượt score-only và stability guardrails trên `policy_select`. Baseline/ablation tách domain-only, exact counterfactual-only, unweighted, weighted-no-attribution, FP-penalized, attribution-gated, signed native-attribution top-k, CART và label/weight shuffle. Negative, inconclusive và AMLNet saturation đều được giữ nguyên theo các guardrail đã khóa.
+
+Do quy mô của hai stress datasets và giới hạn một Kaggle session, stress config dùng một seed huấn luyện định trước (`42`) cho mỗi family; validation resampling và paired temporal-block bootstrap định lượng hai dạng bất định downstream nhưng không thay thế hoàn toàn training-seed variability. Protocol ba seed của IEEE-CIS/BAF không thay đổi.
+
 Dataset không được lưu trong Git. Xem [data/README.md](data/README.md) để biết cách tải, gắn Kaggle dataset và bố trí file.
 
 ## Project structure
@@ -72,7 +85,7 @@ Dataset không được lưu trong Git. Xem [data/README.md](data/README.md) đ�
 configs/           Dataset, model, logic và evaluation settings
 data/              Hướng dẫn dữ liệu; raw data bị gitignore
 docs/              Phạm vi khóa luận và giao thức thực nghiệm
-notebooks/         Tám notebook theo dependency từ data audit đến tổng hợp kết quả
+notebooks/         Notebook 01-08 cốt lõi và notebook 09-11 cho stress-test extension
 results/           Bảng và hình đã chọn cho báo cáo
 scripts/           CLI chạy experiment và export kết quả
 src/               Package triển khai pipeline nghiên cứu
@@ -87,6 +100,7 @@ src/
 ├── models/         MLP, TabularResNet, XGBoost/LightGBM factory
 ├── logic/          Fuzzy rules và differentiable tensor-logic knowledge base
 ├── explanation/    Rule explainer và explanation metrics
+├── stress_testing/ Pipeline stress test, frozen policy, audit và uncertainty
 ├── training/       PyTorch training và inference
 ├── evaluation/     Prediction metrics, calibration, threshold lock
 └── experiment.py   Workflow dùng chung cho CLI và notebooks
@@ -161,10 +175,15 @@ Artifacts được ghi vào `results/runs/<dataset>/` và không được commit
 | `06_IEEE_CIS_Rule_Ablation.ipynb` | Đánh giá vai trò của từng nhóm luật IEEE-CIS |
 | `07_BAF_LTN_Generalization.ipynb` | Cross-dataset replication/portability evaluation trên BAF |
 | `08_Cross_Dataset_Result_Synthesis.ipynb` | Tổng hợp prediction, bootstrap, logic và explanation giữa hai dataset |
+| `09_TransXion_v2_Stress_Test.ipynb` | Stress test AML khó trên canonical TransXion `tx.csv`; `v2` là paper revision |
+| `10_AMLNet_v1_0_Stress_Test.ipynb` | Stress test saturation/limited headroom trên AMLNet v1.0 |
+| `11_Stress_Test_Synthesis.ipynb` | Kiểm tra lineage và tổng hợp hai stress-test output packages |
 
 Notebook exploration chạy nhiều dataset theo từng phần. BAF dùng các nhóm tháng không giao nhau: train `0-4`, validation `5`, test `6-7`. Mỗi notebook model/rule còn lại khóa vào một dataset cụ thể để tránh trộn cấu hình và kết quả. Full mode là mặc định, dùng toàn bộ dữ liệu, ngân sách tối đa 100 epoch cho MLP và 150 epoch cho TabularResNet, early stopping theo validation PR-AUC và ba seed độc lập. Quick/synthetic mode chỉ được bật tường minh để smoke test. Tên file Notebook 07 được giữ để không phá liên kết Kaggle cũ; nội dung được diễn giải là replication của framework trên benchmark thứ hai, không phải chuyển cùng model hoặc cùng rule base giữa hai dataset. Xem [docs/KAGGLE_GUIDE.md](docs/KAGGLE_GUIDE.md).
 
 Notebook 01 cần được rerun khi EDA/data-audit thay đổi, nhưng không phải input dependency của Notebook 08. Notebook 08 tổng hợp outputs 02-07 sau khi frozen-artifact và lineage checks bắt buộc đều qua.
+
+Notebook 09 và 10 độc lập và có thể chạy song song. Notebook 11 chỉ chạy sau khi hai stress outputs đã sẵn sàng; notebook này không train lại predictor hoặc chọn lại policy. Full mode mới được dùng cho kết luận; fixture/quick mode chỉ là kiểm tra kỹ thuật. Xem [giao thức stress test](docs/STRESS_TEST_PROTOCOL.md).
 
 ## Evaluation contract
 
@@ -175,6 +194,8 @@ Notebook 01 cần được rerun khi EDA/data-audit thay đổi, nhưng không p
 5. Rule quantiles, category-risk mapping và median dùng điền numeric missing values chỉ fit trên train; validation/test tái sử dụng giá trị đã khóa.
 6. Test được đánh giá một lần bằng toàn bộ quyết định đã khóa.
 7. Không dùng test để chọn feature, rule, model hoặc hyperparameter.
+
+Đối với stress-test extension, train/validation/test là 60/20/20 theo thời gian. Validation được chia thành các role không chồng lấn cho predictor/calibration lock, alert-conditional rule audit và policy lock. Candidate rules có Tier A/B/C và provenance rõ ràng; mọi baseline/ablation cũng phải qua cùng validation-resampling stability gate. Test chỉ được đánh giá sau khi predictor, calibration, threshold, audited rules, evidence method và coverage policies đã freeze.
 
 Prediction metrics chính:
 
@@ -207,6 +228,13 @@ python scripts/generate_notebooks.py
 pytest -q tests/test_notebook_generation.py
 ```
 
+Stress notebooks 09-11 dùng generator/test riêng để không làm thay đổi lineage đã khóa của Notebook 01-08:
+
+```bash
+python scripts/generate_stress_test_notebooks.py
+pytest -q tests/test_stress_notebook_generation.py
+```
+
 Tests tập trung vào các lỗi có thể làm sai kết luận:
 
 - Temporal split không đảo thứ tự thời gian.
@@ -237,6 +265,7 @@ Tests tập trung vào các lỗi có thể làm sai kết luận:
 - [Giao thức thực nghiệm](docs/EXPERIMENTAL_PROTOCOL.md)
 - [Hướng dẫn Kaggle](docs/KAGGLE_GUIDE.md)
 - [Hướng dẫn kết quả](docs/RESULTS_GUIDE.md)
+- [Giao thức stress test TransXion/AMLNet](docs/STRESS_TEST_PROTOCOL.md)
 - [Mô tả dữ liệu](data/README.md)
 
 ## Giới hạn
@@ -248,6 +277,8 @@ Tests tập trung vào các lỗi có thể làm sai kết luận:
 - Mô hình chưa được đánh giá bằng user study với fraud analysts.
 - Prototype không phải hệ thống ra quyết định tài chính sẵn sàng triển khai.
 - Temporal hoặc prior shift có thể làm giảm calibration và hiệu quả rule.
+- TransXion và AMLNet chỉ mở rộng stress-test coverage; chúng không phải external validation trên dữ liệu của một tổ chức tài chính độc lập.
+- AMLNet saturation, nếu quan sát thấy, chỉ có nghĩa score-only không để lại residual headroom có bằng chứng trong protocol này; nó không chứng minh production performance.
 
 ## License
 

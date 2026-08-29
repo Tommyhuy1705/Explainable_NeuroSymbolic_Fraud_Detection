@@ -178,3 +178,86 @@ Kết quả chỉ hỗ trợ claim trong dataset và protocol đã chạy. Khôn
 - Generalization đến tổ chức tài chính khác khi chưa có dữ liệu tương ứng.
 
 Notebook 07 là cross-dataset replication/portability evaluation: cùng quy trình được cấu hình lại trên BAF với feature space, predictor và rule base riêng. Kết quả đó hỗ trợ khả năng tái áp dụng framework trên benchmark thứ hai, không phải rule/model transfer hoặc external validation trên dữ liệu ngân hàng thực.
+
+## 13. Proposal-aligned stress-test extension
+
+### 13.1. Vai trò và dataset identity
+
+TransXion và AMLNet là stress tests sau protocol cốt lõi, không phải hai co-primary datasets mới. TransXion kiểm tra framework trong bối cảnh AML khó; AMLNet kiểm tra saturation/giới hạn khi score-only có thể đã rất mạnh.
+
+Dataset identity bắt buộc:
+
+- TransXion canonical `tx.csv`, official repository commit `53932595c37c23b9f55ea5ddf5984e4d57b88369`, SHA-256 `d6c345f07a8d8e26123dba5fe4f6572ef198e04fb94f9b53facb3fef6d197a35`. `v2` chỉ paper revision `arXiv:2604.17420v2`, không phải dataset release.
+- AMLNet v1.0 Zenodo DOI `10.5281/zenodo.16736515`, exact file `AMLNet_August 2025.csv`, MD5 `7668fc7d74c787e07546ce85c6f790b9`, CC BY-NC 4.0. Manifest phải ghi discrepancy giữa Zenodo v1/v1.0 và `VERSION 2.0` có thể xuất hiện trong README preview.
+
+Full run dừng khi checksum/schema không khớp. Fixture/quick run chỉ kiểm tra kỹ thuật và không được dùng cho claim.
+
+### 13.2. Safe time construction và split
+
+Với AMLNet, row order và `step` không phải chronological key tin cậy. `event_time` phải được trích từ `metadata` bằng parser giới hạn/regular expression; nghiêm cấm `eval`/`exec`. Full run yêu cầu parse đầy đủ và stable-sort theo timestamp/original row order. Raw metadata, target, `isFraud`, `laundering_typology`, `fraud_probability`, `step` và raw IDs bị loại khỏi predictor.
+
+Với cả hai stress datasets, split sau stable temporal sort là:
+
+- Train: 60% đầu.
+- Validation: 20% tiếp theo.
+- Locked test: 20% cuối.
+
+Validation được chia chronological, không chồng lấn thành bốn roles:
+
+1. Calibration fit.
+2. Calibration/model/threshold selection theo contract đã khai báo.
+3. Rule audit và deduplication.
+4. Selective-policy lock và stability.
+
+Mọi preprocessor, causal history feature contract, model, calibration, threshold, rule candidate/fitted threshold, attribution method, audit criterion, evidence method, rule weight, risk bin và coverage policy phải được fit/chọn/khóa trước locked test.
+
+### 13.3. Predictors và freeze boundary
+
+Ba predictor families là TabularResNetV2, XGBoost và LightGBM. Chúng dùng cùng split, feature eligibility và evaluation contract. Full mode không silent-fallback sang model family khác khi dependency/GPU không khả dụng.
+
+Predictor metrics tối thiểu:
+
+- Raw PR-AUC là primary ranking metric.
+- ROC-AUC, precision, recall, F2 và Recall@1%FPR.
+- Brier score, Expected Calibration Error và negative log-likelihood.
+
+Sau model/calibration/threshold selection trên validation role tương ứng, reference predictor được freeze cùng preprocessor, feature schema, calibration method, threshold, seed và fingerprints. Rule pipeline chỉ đọc frozen outputs.
+
+### 13.4. Candidate tiers, attribution và audit
+
+Candidate rules có provenance tier:
+
+- Tier A: domain-prespecified rules, khai báo trước validation/test.
+- Tier B: train-derived/counterfactual-assisted candidates quanh frozen predictor; không gọi là domain rules thuần túy. Counterfactual raw intervention phải tái tính deterministic derived features theo YAML contract; không perturb trực tiếp derived outputs.
+- Tier C: shallow-path/attribution-derived empirical baselines, chỉ dùng train để sinh candidate.
+
+Validation audit tính coverage, precision/lift, TP-vs-FP rule AUC, attribution support và active count chỉ trong alert region của frozen predictor. Population statistics là diagnostics tách biệt, không làm pass/fail. Rule không qua criterion phải có failure reason. Near-duplicate rules được deduplicate theo alert-conditional activation overlap/Jaccard đã khai báo. Rule weights, evidence aggregation và risk bins chỉ được khóa từ train/validation alerts.
+
+Biến thể contrastive meta-scorer dùng các rule A/B đã qua audit cùng frozen calibrated risk để phân biệt true-positive và false-positive alerts. Nó chỉ fit trên `rule_audit`, có minimum sample/class/risk-variation guardrail và trả zero evidence kèm fallback reason khi không đủ dữ liệu; `policy_select` và locked test chỉ transform bằng schema/mean/std/coefficients đã khóa.
+
+Guarded ensemble là arithmetic mean được pre-register của FP-penalized, attribution-gated và contrastive evidence. Full A/B, domain-only, exact counterfactual-only, all-Tier-B, từng method, guarded ensemble, CART, signed native-attribution top-k và shuffled controls đều phải qua cùng policy-select score/fidelity/support và resampling-stability guardrails trước locked test.
+
+Attribution support chỉ kiểm tra liên hệ giữa rule features và frozen predictor; nó không tự chứng minh causal explanation hoặc full faithfulness.
+
+### 13.5. Fixed-coverage selective evaluation
+
+Coverage budgets được pre-register là 5%, 10%, 25% và 50%; 10%/25% là primary, 5%/50% là sensitivity. Selection phải deterministic và ghi riêng requested count/coverage với realized count/coverage. Support shift có thể làm rule policy underfill; unsupported alerts không được thêm vào để lấp budget.
+
+Mỗi rule-evidence policy có score-only guardrail dùng cùng frozen probabilities. Core comparison luôn rank score-only ở đúng realized selected count của rule policy; kết quả score-only tại requested budget chỉ là diagnostic có tên riêng. So sánh equal-count không hữu hạn thì positive/saturation claim bị chặn. Report gồm selected precision, recall, gain/lift, requested và realized explanation coverage, abstention, sparsity, contradiction và fidelity/attribution support theo đúng denominator. Row không có đủ evidence phải mang nhãn abstained/unsupported thay vì được gán giải thích rỗng.
+
+Rule-added value chỉ được tuyên bố khi chênh lệch với score-only ổn định và có uncertainty report phù hợp. Không chọn coverage tốt nhất từ locked test.
+
+### 13.6. Residual evidence, uncertainty và controls
+
+- **Matched-risk:** risk bins/matching rule fit trên validation, pair/select row trên test không dùng label; so sánh evidence status ở mức model risk tương đương.
+- **Residual TP-vs-FP:** so sánh rule evidence giữa TP và FP alerts bên trong locked risk strata.
+- **Paired bootstrap:** resample cùng rows hoặc temporal blocks cho rule policy và score-only; báo point estimate, 95% interval và valid replicate count.
+- **Policy stability:** validation resampling/seeds, rule survival, selection overlap, coverage error và metric dispersion.
+- **Mandatory shuffled controls:** validation-label shuffle và validation-weight shuffle phải có metric hữu hạn ở cùng realized count với locked primary và với score-only comparator của chính control. Thiếu control, count mismatch hoặc control abstain/non-finite làm final claim fail closed; control tương đương/vượt primary chặn positive claim, còn material positive gain của control chặn saturation claim.
+- **Negative controls:** shuffled/permuted evidence hoặc control tương đương mà không thay frozen predictor.
+
+Negative result là kết quả hợp lệ. AMLNet chỉ được gắn diễn giải saturation khi score-only đã mạnh, residual gain không ổn định và các data-quality/lineage/stability checks đều qua. Saturation benchmark không chứng minh production performance.
+
+### 13.7. Notebook boundary
+
+Notebook 09 và 10 độc lập, có thể chạy song song. Notebook 11 chỉ đọc completed full output packages, kiểm tra lineage và tổng hợp; nó không train, sinh rule hoặc chọn lại policy. Output contract và claim boundaries chi tiết nằm trong [STRESS_TEST_PROTOCOL.md](STRESS_TEST_PROTOCOL.md).

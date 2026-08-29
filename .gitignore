@@ -24,6 +24,7 @@ data/processed/
 data/ieee-fraud-detection/
 data/baf/
 data/bank-account-fraud-dataset-suite-neurips-2022/
+data/TransXion-lfs/
 artifacts/
 checkpoints/
 /models/
@@ -34,7 +35,9 @@ checkpoints/
 
 # Generated experiment outputs (selected tables/figures may be force-added)
 results/runs/
+results/stress/
 outputs/
+tmp/
 
 # Kaggle and credentials
 kaggle.json
