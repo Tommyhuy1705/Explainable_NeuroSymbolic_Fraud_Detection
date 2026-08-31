@@ -701,16 +701,20 @@ def build_synthesis_notebook() -> nbf.NotebookNode:
                     "**Engineering smoke only:** upstream fixture/quick artifacts are intentionally "
                     "ineligible and this synthesis must not be used in the thesis results."
                 ))
-            commits = set(eligibility["git_commit"].dropna().astype(str))
-            source_fingerprints = set(eligibility["source_fingerprint"].dropna().astype(str))
-            if len(commits) != 1 or len(source_fingerprints) != 1:
+            upstream_commits = eligibility["git_commit"].fillna("").astype(str).str.strip()
+            if upstream_commits.eq("").any():
                 raise ValueError(
-                    "Stress artifacts must use the same non-null Git commit and executable source fingerprint"
+                    "Every Notebook 09/10 artifact must record a non-null Git commit"
                 )
-            if GIT_COMMIT not in commits:
+            source_fingerprints = set(
+                eligibility["source_fingerprint"].fillna("").astype(str).str.strip()
+            )
+            source_fingerprints.discard("")
+            if len(source_fingerprints) != 1:
                 raise ValueError(
-                    "Notebook 11 source commit must match the upstream Notebook 09/10 artifacts"
+                    "Notebook 09/10 artifacts must use one non-null executable source fingerprint"
                 )
+            MATCHED_STRESS_SOURCE_FINGERPRINT = next(iter(source_fingerprints))
             '''
         ),
         md("## 3. Read locked outputs without re-selection"),
@@ -897,7 +901,7 @@ def build_synthesis_notebook() -> nbf.NotebookNode:
                 "model_rule_or_policy_reselection": False,
                 "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                 "git_commit": GIT_COMMIT,
-                "source_fingerprint": eligibility["source_fingerprint"].iloc[0],
+                "source_fingerprint": MATCHED_STRESS_SOURCE_FINGERPRINT,
                 "upstream_core_environment_match_required": True,
                 "matched_upstream_core_environment": MATCHED_UPSTREAM_CORE_ENVIRONMENT,
                 "synthesis_runtime_core_environment": CURRENT_CORE_ENVIRONMENT,

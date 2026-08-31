@@ -114,6 +114,9 @@ def test_synthesis_only_consumes_lineage_validated_outputs():
     assert '"scikit-learn"' in source
     assert "matched_upstream_core_environment" in source
     assert "synthesis_runtime_core_environment" in source
+    assert "Every Notebook 09/10 artifact must record a non-null Git commit" in source
+    assert "Notebook 09/10 artifacts must use one non-null executable source fingerprint" in source
+    assert "Notebook 11 source commit must match" not in source
 
 
 def test_generator_does_not_change_executed_notebooks_01_to_08():
