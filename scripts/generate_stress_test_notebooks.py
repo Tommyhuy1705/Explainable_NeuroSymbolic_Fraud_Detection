@@ -787,14 +787,85 @@ def build_synthesis_notebook() -> nbf.NotebookNode:
         code(
             '''
             primary = coverage[coverage["coverage_budget"].round(2).isin([0.10, 0.25])].copy()
-            display(primary.sort_values(["coverage_budget", "dataset"]))
+            primary = primary.sort_values(["dataset", "coverage_budget"]).reset_index(drop=True)
+            compact_columns = [
+                "dataset", "predictor", "coverage_budget", "alert_count",
+                "requested_selected_count", "realized_selected_count", "abstain",
+                "abstention_reason", "all_alert_precision",
+                "score_only_requested_budget_precision", "supported_alert_rate",
+                "unsupported_alert_rate", "requested_explanation_coverage",
+                "realized_explanation_coverage",
+            ]
+            compact_summary = primary[compact_columns].copy()
+            display(compact_summary)
 
-            fig, axes = plt.subplots(1, 2, figsize=(15, 5.5), constrained_layout=True)
-            sns.barplot(data=primary, x="coverage_budget", y="delta_vs_score_only", hue="dataset", ax=axes[0])
-            axes[0].axhline(0, color="black", linewidth=1)
-            axes[0].set(title="Incremental precision at primary coverages", xlabel="Coverage", ylabel="VASRE - score-only precision")
-            sns.barplot(data=primary, x="coverage_budget", y="selected_alert_precision", hue="dataset", ax=axes[1])
-            axes[1].set(title="Selected-alert precision", xlabel="Coverage", ylabel="Precision")
+            case_labels = [
+                f"{dataset.replace('_', ' ').title()}\\n{coverage:.0%}"
+                for dataset, coverage in zip(
+                    compact_summary["dataset"], compact_summary["coverage_budget"]
+                )
+            ]
+            x = np.arange(len(compact_summary))
+            colors = ["#4C72B0" if dataset == "transxion_v2" else "#DD8452"
+                      for dataset in compact_summary["dataset"]]
+
+            fig, axes = plt.subplots(2, 2, figsize=(16, 10), constrained_layout=True)
+            score_bars = axes[0, 0].bar(
+                x, compact_summary["score_only_requested_budget_precision"], color=colors
+            )
+            axes[0, 0].bar_label(score_bars, fmt="%.3f", padding=3)
+            axes[0, 0].set(
+                title="Score-only precision at requested budgets",
+                ylabel="Precision", xticks=x, xticklabels=case_labels, ylim=(0, 1.10),
+            )
+
+            support = compact_summary.drop_duplicates("dataset")
+            support_labels = support["dataset"].str.replace("_", " ").str.title()
+            support_x = np.arange(len(support))
+            axes[0, 1].bar(
+                support_x, support["supported_alert_rate"], label="Supported", color="#55A868"
+            )
+            axes[0, 1].bar(
+                support_x, support["unsupported_alert_rate"],
+                bottom=support["supported_alert_rate"], label="Unsupported", color="#C44E52"
+            )
+            axes[0, 1].set(
+                title="Selected-rule support within predictor alerts",
+                ylabel="Alert fraction", xticks=support_x, xticklabels=support_labels, ylim=(0, 1.05),
+            )
+            axes[0, 1].legend(loc="upper right")
+
+            width = 0.38
+            axes[1, 0].bar(
+                x - width / 2, compact_summary["requested_explanation_coverage"],
+                width, label="Requested", color="#8172B2"
+            )
+            realized_bars = axes[1, 0].bar(
+                x + width / 2, compact_summary["realized_explanation_coverage"],
+                width, label="Realized", color="#64B5CD"
+            )
+            axes[1, 0].bar_label(realized_bars, fmt="%.2f", padding=3)
+            axes[1, 0].set(
+                title="Requested versus realized explanation coverage",
+                ylabel="Coverage", xticks=x, xticklabels=case_labels, ylim=(0, 0.32),
+            )
+            axes[1, 0].legend(loc="upper left")
+
+            abstention_bars = axes[1, 1].bar(
+                x, compact_summary["abstain"].astype(float), color=colors
+            )
+            axes[1, 1].bar_label(abstention_bars, fmt="%.0f", padding=3)
+            axes[1, 1].set(
+                title="Policy-level guardrail abstention",
+                ylabel="Abstention indicator", xticks=x, xticklabels=case_labels, ylim=(0, 1.10),
+            )
+            for axis in axes.flat:
+                axis.grid(axis="y", alpha=0.3)
+
+            SYNTHESIS_DIR = OUTPUT_BASE / "11_stress_test_synthesis"
+            SYNTHESIS_DIR.mkdir(parents=True, exist_ok=True)
+            summary_figure_path = SYNTHESIS_DIR / "stress_test_summary.png"
+            fig.savefig(summary_figure_path, dpi=180, bbox_inches="tight")
             plt.show()
             '''
         ),
@@ -878,8 +949,10 @@ def build_synthesis_notebook() -> nbf.NotebookNode:
             SYNTHESIS_DIR = OUTPUT_BASE / "11_stress_test_synthesis"
             SYNTHESIS_DIR.mkdir(parents=True, exist_ok=True)
             synthesis_path = SYNTHESIS_DIR / "primary_stress_test_synthesis.csv"
+            compact_summary_path = SYNTHESIS_DIR / "primary_stress_test_summary.csv"
             eligibility_path = SYNTHESIS_DIR / "stress_input_eligibility.csv"
             synthesis.to_csv(synthesis_path, index=False)
+            compact_summary.to_csv(compact_summary_path, index=False)
             eligibility.to_csv(eligibility_path, index=False)
             upstream = {
                 dataset: {
@@ -908,7 +981,9 @@ def build_synthesis_notebook() -> nbf.NotebookNode:
                 "upstream": upstream,
                 "outputs": {
                     synthesis_path.name: sha256_path(synthesis_path),
+                    compact_summary_path.name: sha256_path(compact_summary_path),
                     eligibility_path.name: sha256_path(eligibility_path),
+                    summary_figure_path.name: sha256_path(summary_figure_path),
                 },
                 "claim_boundary": "Stress evidence does not establish causality or production generalization.",
             }
@@ -940,14 +1015,60 @@ def build_synthesis_notebook() -> nbf.NotebookNode:
             })
             '''
         ),
-        md(
+        code(
             '''
-            ## 7. Thesis interpretation
+            reference_predictive = predictive[predictive["reference_selected"]].set_index("dataset")
+            dataset_labels = {
+                "transxion_v2": "TransXion v2",
+                "amlnet_v1_0": "AMLNet v1.0",
+            }
+            dataset_findings = []
+            for dataset in ("transxion_v2", "amlnet_v1_0"):
+                rows = compact_summary[compact_summary["dataset"] == dataset].sort_values(
+                    "coverage_budget"
+                )
+                precision_by_budget = ", ".join(
+                    f"{row.coverage_budget:.0%}: {row.score_only_requested_budget_precision:.3f}"
+                    for row in rows.itertuples()
+                )
+                predictor_row = reference_predictive.loc[dataset]
+                dataset_findings.append(
+                    f"- **{dataset_labels[dataset]}:** reference {predictor_row['family']} đạt "
+                    f"PR-AUC {predictor_row['pr_auc']:.3f}; selected-rule support trên alerts là "
+                    f"{rows['supported_alert_rate'].iloc[0]:.1%}; score-only precision theo budget "
+                    f"({precision_by_budget})."
+                )
 
-            Báo cáo từng stress dataset theo đúng vai trò riêng thay vì lấy trung bình gộp. TransXion
-            kiểm tra robustness trong một AML benchmark khó hơn; AMLNet kiểm tra saturation/giới hạn.
-            Nếu một dataset abstain hoặc không có CI dương, giữ nguyên kết quả âm. Không dùng dataset
-            còn lại để che khuất failure và không gọi hai stress test này là external validation thực tế.
+            all_primary_abstained = bool(compact_summary["abstain"].all())
+            positive_incremental_evidence = bool(
+                synthesis["positive_incremental_evidence_confirmed"].fillna(False).any()
+            )
+            saturation_confirmed = bool(synthesis["saturation_confirmed"].fillna(False).any())
+            decision_text = (
+                "Cả hai stress dataset đều kích hoạt guardrail abstention tại coverage 10% và 25%."
+                if all_primary_abstained else
+                "Ít nhất một stress dataset phát hành selective explanations tại primary coverage."
+            )
+            evidence_text = (
+                "Có bằng chứng incremental dương đã qua confirmatory gate."
+                if positive_incremental_evidence else
+                "Không có bằng chứng confirmatory rằng rule evidence cải thiện predictor score."
+            )
+            saturation_text = (
+                "Saturation được xác nhận theo protocol đã khóa."
+                if saturation_confirmed else
+                "Saturation không được xác nhận; không suy diễn từ zero-selection hoặc bootstrap không khả dụng."
+            )
+            display(Markdown(
+                "## 7. Thesis interpretation\\n\\n"
+                + "\\n".join(dataset_findings)
+                + "\\n\\n"
+                + f"- {decision_text}\\n"
+                + f"- {evidence_text}\\n"
+                + f"- {saturation_text}\\n"
+                + "- Đây là stress-test robustness trong hai benchmark nghiên cứu; kết quả không "
+                  "chứng minh causal explanation, external validation thực tế hoặc production generalization."
+            ))
             '''
         ),
     ]

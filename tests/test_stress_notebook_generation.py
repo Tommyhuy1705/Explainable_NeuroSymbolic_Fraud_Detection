@@ -117,6 +117,13 @@ def test_synthesis_only_consumes_lineage_validated_outputs():
     assert "Every Notebook 09/10 artifact must record a non-null Git commit" in source
     assert "Notebook 09/10 artifacts must use one non-null executable source fingerprint" in source
     assert "Notebook 11 source commit must match" not in source
+    assert "primary_stress_test_summary.csv" in source
+    assert "stress_test_summary.png" in source
+    assert "score_only_requested_budget_precision" in source
+    assert "supported_alert_rate" in source
+    assert "requested_explanation_coverage" in source
+    assert "all_primary_abstained" in source
+    assert "Saturation không được xác nhận" in source
 
 
 def test_generator_does_not_change_executed_notebooks_01_to_08():
